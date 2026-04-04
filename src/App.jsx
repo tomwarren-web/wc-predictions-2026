@@ -11,6 +11,9 @@ import {
   createCheckoutSession,
   checkPaymentStatus,
   sendEmail,
+  signUpWithPassword,
+  signInWithPassword,
+  requestPasswordReset,
 } from "./lib/supabase";
 import { isApiFootballConfigured, fetchAllResults, hasLiveMatches, getMatchResultForTeams } from "./lib/api-football";
 import { getSubmissionDeadlineMs, getFirstKickoffMs, formatCountdown, formatDeadlineLocal } from "./lib/tournament-deadline";
@@ -30,45 +33,110 @@ function getPotBreakdown(entryCount) {
   return { grossPot, costAmount, prizePot };
 }
 
-// Real 2026 World Cup groups from the December 5, 2025 draw
+// Finalised 2026 World Cup groups — all 48 teams confirmed after March 2026 playoffs
+// UEFA PO-A=Bosnia-Herzegovina, PO-B=Sweden, PO-C=Turkey, PO-D=Czech Republic
+// IC PO-1=DR Congo, IC PO-2=Iraq
 const TEAMS = {
-  A: ["Mexico","South Africa","South Korea","UEFA PO-D"],
-  B: ["Canada","UEFA PO-A","Qatar","Switzerland"],
+  A: ["Mexico","South Africa","South Korea","Czech Republic"],
+  B: ["Canada","Bosnia-Herzegovina","Qatar","Switzerland"],
   C: ["Brazil","Morocco","Haiti","Scotland"],
-  D: ["USA","Paraguay","Australia","UEFA PO-C"],
+  D: ["USA","Paraguay","Australia","Turkey"],
   E: ["Germany","Curaçao","Ivory Coast","Ecuador"],
-  F: ["Netherlands","Japan","UEFA PO-B","Tunisia"],
+  F: ["Netherlands","Japan","Sweden","Tunisia"],
   G: ["Belgium","Egypt","Iran","New Zealand"],
-  H: ["Spain","Saudi Arabia","Cape Verde","Uruguay"],
-  I: ["France","Senegal","IC PO-2","Norway"],
+  H: ["Spain","Cape Verde","Saudi Arabia","Uruguay"],
+  I: ["France","Senegal","Iraq","Norway"],
   J: ["Argentina","Algeria","Austria","Jordan"],
-  K: ["Portugal","IC PO-1","Uzbekistan","Colombia"],
+  K: ["Portugal","DR Congo","Uzbekistan","Colombia"],
   L: ["England","Croatia","Ghana","Panama"],
 };
 
-const FLAG_EMOJI = {
-  "Mexico":"🇲🇽","South Africa":"🇿🇦","South Korea":"🇰🇷","UEFA PO-D":"🏳",
-  "Canada":"🇨🇦","UEFA PO-A":"🏳","Qatar":"🇶🇦","Switzerland":"🇨🇭",
-  "Brazil":"🇧🇷","Morocco":"🇲🇦","Haiti":"🇭🇹","Scotland":"🏴󠁧󠁢󠁳󠁣󠁴󠁿",
-  "USA":"🇺🇸","Paraguay":"🇵🇾","Australia":"🇦🇺","UEFA PO-C":"🏳",
-  "Germany":"🇩🇪","Curaçao":"🇨🇼","Ivory Coast":"🇨🇮","Ecuador":"🇪🇨",
-  "Netherlands":"🇳🇱","Japan":"🇯🇵","UEFA PO-B":"🏳","Tunisia":"🇹🇳",
-  "Belgium":"🇧🇪","Egypt":"🇪🇬","Iran":"🇮🇷","New Zealand":"🇳🇿",
-  "Spain":"🇪🇸","Saudi Arabia":"🇸🇦","Cape Verde":"🇨🇻","Uruguay":"🇺🇾",
-  "France":"🇫🇷","Senegal":"🇸🇳","IC PO-2":"🏳","Norway":"🇳🇴",
-  "Argentina":"🇦🇷","Algeria":"🇩🇿","Austria":"🇦🇹","Jordan":"🇯🇴",
-  "Portugal":"🇵🇹","IC PO-1":"🏳","Uzbekistan":"🇺🇿","Colombia":"🇨🇴",
-  "England":"🏴󠁧󠁢󠁥󠁮󠁧󠁿","Croatia":"🇭🇷","Ghana":"🇬🇭","Panama":"🇵🇦",
+/** ISO 3166-1 alpha-2 or flag-icons regional codes (e.g. gb-eng) for SVG flags. */
+const TEAM_FLAG_CODE = {
+  Mexico: "mx",
+  "South Africa": "za",
+  "South Korea": "kr",
+  "Czech Republic": "cz",
+  Canada: "ca",
+  "Bosnia-Herzegovina": "ba",
+  Qatar: "qa",
+  Switzerland: "ch",
+  Brazil: "br",
+  Morocco: "ma",
+  Haiti: "ht",
+  Scotland: "gb-sct",
+  USA: "us",
+  Paraguay: "py",
+  Australia: "au",
+  Turkey: "tr",
+  Germany: "de",
+  Curaçao: "cw",
+  "Ivory Coast": "ci",
+  Ecuador: "ec",
+  Netherlands: "nl",
+  Japan: "jp",
+  Sweden: "se",
+  Tunisia: "tn",
+  Belgium: "be",
+  Egypt: "eg",
+  Iran: "ir",
+  "New Zealand": "nz",
+  Spain: "es",
+  "Cape Verde": "cv",
+  "Saudi Arabia": "sa",
+  Uruguay: "uy",
+  France: "fr",
+  Senegal: "sn",
+  Iraq: "iq",
+  Norway: "no",
+  Argentina: "ar",
+  Algeria: "dz",
+  Austria: "at",
+  Jordan: "jo",
+  Portugal: "pt",
+  "DR Congo": "cd",
+  Uzbekistan: "uz",
+  Colombia: "co",
+  England: "gb-eng",
+  Croatia: "hr",
+  Ghana: "gh",
+  Panama: "pa",
 };
 
-// Likely 2026 WC squad players per nation — forwards & attacking mids prioritised for scorer predictions
+const FLAG_ICONS_VER = "7.2.3";
+
+function TeamFlag({ team, className = "", size = 24 }) {
+  const code = TEAM_FLAG_CODE[team];
+  const h = Math.round((size * 3) / 4);
+  if (!code) {
+    return (
+      <span className={`flag-placeholder ${className}`} style={{ fontSize: Math.max(14, size * 0.75), lineHeight: 1 }} role="img" aria-hidden>
+        🏳
+      </span>
+    );
+  }
+  const src = `https://cdn.jsdelivr.net/gh/lipis/flag-icons@${FLAG_ICONS_VER}/flags/4x3/${code}.svg`;
+  return (
+    <img
+      src={src}
+      alt=""
+      width={size}
+      height={h}
+      className={`flag-img ${className}`}
+      loading="lazy"
+      decoding="async"
+    />
+  );
+}
+
+// 2026 WC squads — forwards & attacking mids prioritised for scorer predictions
 const PLAYERS = {
   "Mexico": ["Santiago Giménez","Hirving Lozano","Alexis Vega","Raúl Jiménez","Henry Martín","Roberto Alvarado","Uriel Antuna","César Huerta","Julián Quiñones","Diego Laínez","Orbelin Pineda","Luis Chávez","Edson Álvarez","Luis Romo","Johan Vásquez"],
   "South Africa": ["Lyle Foster","Percy Tau","Evidence Makgopa","Iqraam Rayners","Bongokuhle Hlongwane","Teboho Mokoena","Themba Zwane","Oswin Appollis","Relebohile Mofokeng","Elias Mokwana","Aubrey Modiba","Thabiso Kutumela","Ethan Brooks","Sphephelo Sithole","Thapelo Morena"],
   "South Korea": ["Son Heung-min","Lee Kang-in","Hwang Hee-chan","Oh Hyeon-gyu","Cho Gue-sung","Bae Jun-ho","Hwang In-beom","Jeong Woo-yeong","Lee Jae-sung","Yang Hyun-jun","Song Min-kyu","Um Won-sang","Seol Young-woo","Park Jin-seop","Kwon Chang-hoon"],
-  "UEFA PO-D": ["TBC - Playoff Winner"],
+  "Czech Republic": ["Patrik Schick","Adam Hlozek","Tomáš Souček","Lukáš Provod","Jan Kuchta","Alex Král","Mojmír Chytil","Pavel Šulc","Adam Karabec","Ondřej Lingr","Václav Jurečka","Jakub Pešek","Vladimír Coufal","David Jurásek","Jiří Jirásek"],
   "Canada": ["Jonathan David","Alphonso Davies","Cyle Larin","Tajon Buchanan","Ismaël Koné","Liam Millar","Jonathan Osorio","Stephen Eustáquio","Jacob Shaffelburg","Jacen Russell-Rowe","Alistair Johnston","Ali Ahmed","Theo Corbeanu","Junior Hoilett","Moise Bombito"],
-  "UEFA PO-A": ["TBC - Playoff Winner"],
+  "Bosnia-Herzegovina": ["Ermedin Demirovic","Benjamin Tahirović","Amer Gojak","Haris Hajradinović","Luka Menalo","Armin Hodžić","Veldin Muharemovic","Smail Prevljak","Aldin Turković","Denis Huseinbašić","Džemal Šabović","Lazar Vušković","Mersud Ahmetovic","Nikola Krstović","Edin Džeko"],
   "Qatar": ["Akram Afif","Almoez Ali","Mohammed Muntari","Abdulaziz Hatem","Hassan Al-Haydos","Hisham Asaad","Bassam Al-Rawi","Ahmed Alaaeldin","Yusuf Abdurisag","Boualem Khoukhi","Assim Madibo","Abdullah Al-Ahrak","Ismaeel Mohammad","Karim Boudiaf","Ali Asad"],
   "Switzerland": ["Breel Embolo","Noah Okafor","Dan Ndoye","Zeki Amdouni","Ruben Vargas","Fabian Rieder","Granit Xhaka","Remo Freuler","Djibril Sow","Kwadwo Duah","Vincent Sierro","Andi Zeqiri","Xherdan Shaqiri","Renato Steffen","Manuel Akanji"],
   "Brazil": ["Vinicius Jr","Rodrygo","Raphinha","Endrick","Estêvão","Savinho","Gabriel Martinelli","Lucas Paquetá","Bruno Guimarães","Gabriel Jesus","Igor Jesus","Pedro","Luiz Henrique","João Pedro","Marquinhos"],
@@ -78,33 +146,33 @@ const PLAYERS = {
   "USA": ["Christian Pulisic","Gio Reyna","Ricardo Pepi","Folarin Balogun","Tim Weah","Josh Sargent","Weston McKennie","Yunus Musah","Tyler Adams","Brenden Aaronson","Haji Wright","Malik Tillman","Cade Cowell","Brandon Vazquez","Sergiño Dest"],
   "Paraguay": ["Miguel Almirón","Julio Enciso","Antonio Sanabria","Ramón Sosa","Alejandro Romero Gamarra","Ángel Romero","Adam Bareiro","Óscar Romero","Mathías Villasanti","Richard Sánchez","Gabriel Avalos","Gustavo Gómez","Iván Villalba","Derlis González","Hugo Millán"],
   "Australia": ["Craig Goodwin","Garang Kuol","Nestory Irankunda","Mitchell Duke","Martin Boyle","Riley McGree","Jackson Irvine","Ajdin Hrustic","Marco Tilio","Keanu Baccus","Kusini Yengi","Adam Taggart","Connor Metcalfe","Awer Mabil","Mathew Leckie"],
-  "UEFA PO-C": ["TBC - Playoff Winner"],
+  "Turkey": ["Arda Güler","Hakan Çalhanoğlu","Kerem Aktürkoğlu","Barış Alper Yılmaz","Ferdi Kadıoğlu","Orkun Kökçü","Okay Yokuşlu","Cengiz Ünder","Semih Kılıçsoy","Bertuğ Yıldırım","Salih Özcan","Mert Müldür","Ozan Kabak","Zeki Çelik","Kenan Karaman"],
   "Germany": ["Florian Wirtz","Jamal Musiala","Kai Havertz","Leroy Sané","Niclas Füllkrug","Serge Gnabry","Deniz Undav","Maximilian Beier","Chris Führich","Tim Kleindienst","Joshua Kimmich","İlkay Gündoğan","Robert Andrich","Felix Nmecha","Youssoufa Moukoko"],
   "Curaçao": ["Leandro Bacuna","Rangelo Janga","Kenji Gorré","Elson Hooi","Jurien Gaari","Juninho Bacuna","Charlton Vicento","Giliano Wijnaldum","Gervane Kastaneer","Jarchinio Antonia","Vurnon Anita","Cuco Martina","Shermaine Martina","Ruven Providence","Darryl Lachman"],
   "Ivory Coast": ["Sébastien Haller","Simon Adingra","Nicolas Pépé","Oumar Diakité","Christian Kouamé","Franck Kessié","Ibrahim Sangaré","Maxwel Cornet","Hamed Traoré","Jérémy Boga","Wilfried Zaha","Jonathan Bamba","Odilon Kossounou","Jean-Philippe Gbamin","Serge Aurier"],
   "Ecuador": ["Kendry Páez","Enner Valencia","Moisés Caicedo","Gonzalo Plata","Jeremy Sarmiento","Djorkaeff Reasco","Kevin Rodríguez","John Yeboah","Alan Minda","Michael Estrada","Ángel Mena","Pervis Estupiñán","Joao Rojas","William Pacho","Fidel Martínez"],
   "Netherlands": ["Cody Gakpo","Xavi Simons","Memphis Depay","Donyell Malen","Brian Brobbey","Joshua Zirkzee","Wout Weghorst","Frenkie de Jong","Tijjani Reijnders","Ryan Gravenberch","Jeremie Frimpong","Steven Bergwijn","Denzel Dumfries","Virgil van Dijk","Jurriën Timber"],
   "Japan": ["Takefusa Kubo","Kaoru Mitoma","Ritsu Doan","Ayase Ueda","Kyogo Furuhashi","Takumi Minamino","Daichi Kamada","Junya Ito","Ao Tanaka","Keito Nakamura","Koji Miyoshi","Wataru Endo","Hidemasa Morita","Reo Hatate","Takehiro Tomiyasu"],
-  "UEFA PO-B": ["TBC - Playoff Winner"],
+  "Sweden": ["Alexander Isak","Viktor Gyökeres","Dejan Kulusevski","Anthony Elanga","Emil Forsberg","Mattias Svanberg","Jesper Karlsson","Victor Claesson","Jordan Larsson","Robin Quaison","Joakim Nilsson","Pontus Jansson","Ludvig Augustinsson","Marcus Danielson","Marcus Pedersen"],
   "Tunisia": ["Anis Ben Slimane","Hannibal Mejbri","Youssef Msakni","Ellyes Skhiri","Seifeddine Jaziri","Issam Jebali","Wahbi Khazri","Mohamed Drager","Ferjani Sassi","Naim Sliti","Ali Abdi","Hamza Rafia","Montassar Talbi","Ala Ghram","Saad Bguir"],
   "Belgium": ["Kevin De Bruyne","Romelu Lukaku","Lois Openda","Jeremy Doku","Leandro Trossard","Charles De Ketelaere","Johan Bakayoko","Julien Duranville","Amadou Onana","Yannick Carrasco","Youri Tielemans","Dries Mertens","Arthur Vermeeren","Michy Batshuayi","Hans Vanaken"],
   "Egypt": ["Mohamed Salah","Omar Marmoush","Mostafa Mohamed","Trezeguet","Ahmed Hassan Kouka","Emam Ashour","Ibrahim Adel","Ahmed Sayed Zizou","Mohamed Elneny","Akram Tawfik","Marwan Hamdi","Hussein El Shahat","Amr El-Sulaya","Karim Fouad","Mahmoud Trezeguet"],
   "Iran": ["Mehdi Taremi","Sardar Azmoun","Alireza Jahanbakhsh","Saman Ghoddos","Ali Gholizadeh","Shahab Zahedi","Karim Ansarifard","Ahmad Noorollahi","Saeid Ezatolahi","Milad Mohammadi","Ehsan Hajsafi","Allahyar Sayyadmanesh","Omid Noorafkan","Shoja Khalilzadeh","Reza Shekari"],
   "New Zealand": ["Chris Wood","Matt Garbett","Liberato Cacace","Marco Rojas","Elijah Just","Ben Waine","Joe Bell","Marko Stamenic","Clayton Lewis","Alex Greive","Sarpreet Singh","Tim Payne","Nando Pijnaker","Tommy Smith","Michael Woud"],
   "Spain": ["Lamine Yamal","Pedri","Nicolás Williams","Dani Olmo","Álvaro Morata","Ferran Torres","Gavi","Mikel Oyarzabal","Fabian Ruiz","Rodri","Mikel Merino","Joselu","Ayoze Pérez","Alejandro Baena","Pau Cubarsí"],
-  "Saudi Arabia": ["Salem Al-Dawsari","Firas Al-Buraikan","Saleh Al-Shehri","Mohammed Al-Dawsari","Sami Al-Najei","Abdullah Al-Hamdan","Abdulrahman Ghareeb","Hattan Bahebri","Ali Al-Bulayhi","Mohammed Al-Breik","Yasser Al-Shahrani","Nasser Al-Dawsari","Ayman Yahya","Mohammed Kanno","Hassan Kadesh"],
   "Cape Verde": ["Ryan Mendes","Garry Rodrigues","Jamiro Monteiro","Kenny Rocha Santos","Julio Tavares","Stopira","Dylan Tavares","Lisandro Semedo","Jovane Cabral","Willy Semedo","Roberto Lopes","Nuno Borges","Gilson Benchimol","Steven Fortes","Patrick Andrade"],
+  "Saudi Arabia": ["Salem Al-Dawsari","Firas Al-Buraikan","Saleh Al-Shehri","Mohammed Al-Dawsari","Sami Al-Najei","Abdullah Al-Hamdan","Abdulrahman Ghareeb","Hattan Bahebri","Ali Al-Bulayhi","Mohammed Al-Breik","Yasser Al-Shahrani","Nasser Al-Dawsari","Ayman Yahya","Mohammed Kanno","Hassan Kadesh"],
   "Uruguay": ["Darwin Núñez","Federico Valverde","Facundo Torres","Nicolás de la Cruz","Rodrigo Bentancur","Mathías Olivera","Agustín Canobbio","Maximiliano Araújo","Luciano Rodríguez","Facundo Pellistri","Ronald Araújo","José María Giménez","Manuel Ugarte","Giorgian De Arrascaeta","Agustín Álvarez Martínez"],
   "France": ["Kylian Mbappé","Marcus Thuram","Ousmane Dembélé","Antoine Griezmann","Randal Kolo Muani","Bradley Barcola","Eduardo Camavinga","Aurélien Tchouaméni","Warren Zaïre-Emery","Kingsley Coman","Christopher Nkunku","Michael Olise","William Saliba","Adrien Rabiot","Désiré Doué"],
   "Senegal": ["Nicolas Jackson","Sadio Mané","Ismaïla Sarr","Iliman Ndiaye","Boulaye Dia","Habib Diarra","Pape Matar Sarr","Idrissa Gueye","Krepin Diatta","Kalidou Koulibaly","Lamine Camara","Abdallah Sima","Cheikhou Kouyaté","Nampalys Mendy","Abdoulaye Seck"],
-  "IC PO-2": ["TBC - Playoff Winner"],
+  "Iraq": ["Mohanad Ali","Amjad Attwan","Bashar Resan","Humam Tariq","Ali Adnan","Ahmed Ibrahim","Hussein Ali","Aihem Auda","Ameen Mohammed","Osama Rashid","Mustafa Nadhim","Saad Abdulamir","Hasan Abdulkareem","Yousif Abed","Ahmed Yasin"],
   "Norway": ["Erling Haaland","Martin Ødegaard","Alexander Sørloth","Antonio Nusa","Oscar Bobb","Sander Berge","Kristian Thorstvedt","Fredrik Aursnes","Jens Petter Hauge","Mohamed Elyounoussi","Patrick Berg","Ola Solbakken","Mats Møller Dæhli","Birger Meling","David Møller Wolfe"],
   "Argentina": ["Lionel Messi","Julián Álvarez","Lautaro Martínez","Alejandro Garnacho","Rodrigo De Paul","Alexis Mac Allister","Paulo Dybala","Nicolás González","Enzo Fernández","Giovani Lo Celso","Thiago Almada","Leandro Paredes","Ángel Correa","Valentín Castellanos","Valentín Barco"],
   "Algeria": ["Riyad Mahrez","Ismaël Bennacer","Amine Gouiri","Mohamed Amoura","Youcef Atal","Houssem Aouar","Aissa Mandi","Sofiane Feghouli","Baghdad Bounedjah","Said Benrahma","Adam Zorgane","Andy Delort","Yacine Brahimi","Ramy Bensebaini","Farès Chaïbi"],
   "Austria": ["Marcel Sabitzer","Christoph Baumgartner","Marko Arnautovic","Michael Gregoritsch","Patrick Wimmer","Konrad Laimer","Nicolas Seiwald","Florian Grillitsch","Alexander Prass","Kevin Danso","Maximilian Entrup","Romano Schmid","Phillipp Mwene","Flavius Daniliuc","Matthias Seidl"],
   "Jordan": ["Musa Al-Taamari","Yazan Al-Naimat","Hamza Al-Dardour","Baha' Faisal","Yazan Al-Arab","Mousa Tamari","Ahmad Saleh","Nour El-Rawabdeh","Al-Motaz Abdallah","Mohammad Abu Zema","Abdullah Nasib","Yousef Al-Rawashdeh","Salem Al-Ajalin","Ehsan Haddad","Mohammad Rashdan"],
   "Portugal": ["Cristiano Ronaldo","Bruno Fernandes","Rafael Leão","Bernardo Silva","Diogo Jota","Gonçalo Ramos","Pedro Neto","João Félix","Vitinha","Francisco Conceição","João Neves","Rúben Neves","Florentino Luís","António Silva","Nuno Mendes"],
-  "IC PO-1": ["TBC - Playoff Winner"],
+  "DR Congo": ["Dodi Lukebakio","Jackson Muleka","Théo Bongonda","Chancel Mbemba","Arthur Masuaku","Neeskens Kebano","Samuel Bastien","Merveille Bope","Jonathan Bolingi","Cédric Bakambu","Chadrac Akolo","Jean-Marc Makusu","Silas Nsimba","Glody Likonza","Emmanuel Leko"],
   "Uzbekistan": ["Eldor Shomurodov","Abbosbek Fayzullaev","Jaloliddin Masharipov","Dostonbek Khamdamov","Otabek Shukurov","Khojimat Erkinov","Bobur Abdixoliqov","Oston Urunov","Islom Tukhtakhodjaev","Odiljon Hamrobekov","Husniddin Aliqulov","Azizbek Turgunboev","Jasurbek Yakhshiboev","Khurshid Tursunov","Abdurauf Buriev"],
   "Colombia": ["Luis Díaz","Jhon Durán","Rafael Santos Borré","James Rodríguez","Richard Ríos","Jhon Arias","Jorge Carrascal","Juan Quintero","Juan Cuadrado","Yaser Asprilla","Miguel Borja","Mateus Uribe","Jefferson Lerma","Luis Sinisterra","Daniel Muñoz"],
   "England": ["Harry Kane","Jude Bellingham","Bukayo Saka","Phil Foden","Cole Palmer","Ollie Watkins","Anthony Gordon","Eberechi Eze","Declan Rice","Trent Alexander-Arnold","Marcus Rashford","Jarrod Bowen","Morgan Gibbs-White","Kobbie Mainoo","Levi Colwill"],
@@ -191,16 +259,18 @@ const css = `
   .card-header { background: #111; padding: 8px 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #1e1e1e; }
   .group-badge { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 0.85rem; letter-spacing: 2px; text-transform: uppercase; color: ${COLORS.gold}; }
   .match-row { padding: 14px; }
-  .match-teams { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-  .team-name { font-family: 'Barlow', sans-serif; font-weight: 700; font-size: 0.9rem; flex: 1; text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; gap: 6px; }
-  .team-name.away { text-align: right; justify-content: flex-end; }
-  .match-flag { font-size: 1.6rem; line-height: 1; flex-shrink: 0; }
-  .vs { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; color: #333; font-size: 0.85rem; flex-shrink: 0; letter-spacing: 1px; }
-  .score-inputs { display: flex; align-items: center; gap: 8px; justify-content: center; margin-bottom: 10px; }
-  .score-input { width: 52px; height: 52px; text-align: center; font-size: 1.6rem; font-weight: 900; font-family: 'Barlow Condensed', sans-serif; background: #000; border: 2px solid #2a2a2a; border-radius: 0; color: ${COLORS.gold}; outline: none; -moz-appearance: textfield; transition: border-color 0.2s, box-shadow 0.2s; }
+  .flag-img { object-fit: cover; border-radius: 2px; box-shadow: 0 0 0 1px rgba(255,255,255,0.12); flex-shrink: 0; }
+  .flag-placeholder { flex-shrink: 0; opacity: 0.85; }
+  .vs { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; color: #444; font-size: 0.8rem; flex-shrink: 0; letter-spacing: 2px; text-transform: uppercase; }
+  .score-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px 14px; margin-bottom: 12px; width: 100%; }
+  .score-cluster { display: flex; align-items: center; gap: 8px; flex: 1 1 180px; min-width: 0; max-width: 100%; }
+  .score-cluster--home { justify-content: flex-end; }
+  .score-cluster--away { justify-content: flex-start; }
+  .score-team-inline { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: min(160px, 42vw); }
+  .score-inline-name { font-family: 'Barlow', sans-serif; font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.35px; color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .score-input { width: 52px; height: 52px; text-align: center; font-size: 1.6rem; font-weight: 900; font-family: 'Barlow Condensed', sans-serif; background: #000; border: 2px solid #2a2a2a; border-radius: 0; color: ${COLORS.gold}; outline: none; -moz-appearance: textfield; transition: border-color 0.2s, box-shadow 0.2s; flex-shrink: 0; }
   .score-input:focus { border-color: ${COLORS.gold}; box-shadow: 0 0 0 1px rgba(201,168,76,0.3); }
   .score-input::-webkit-inner-spin-button, .score-input::-webkit-outer-spin-button { -webkit-appearance: none; }
-  .score-dash { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.4rem; color: #333; }
   .scorer-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .scorer-label { font-size: 0.7rem; color: #666; white-space: nowrap; font-family: 'Barlow', sans-serif; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
   .styled-select { flex: 1; min-width: 0; background: #000; border: 1px solid #2a2a2a; border-radius: 0; color: #fff; padding: 10px 10px; font-family: 'Noto Sans', sans-serif; font-size: 0.82rem; outline: none; min-height: 44px; transition: border-color 0.2s; appearance: none; -webkit-appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23666' fill='none' stroke-width='1.5'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; padding-right: 30px; }
@@ -217,7 +287,7 @@ const css = `
   .standing-slot.filled { border-style: solid; border-color: ${COLORS.gold}; }
   .standing-slot .pos { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 0.72rem; color: #444; margin-bottom: 2px; letter-spacing: 1px; text-transform: uppercase; }
   .standing-slot.filled .pos { color: ${COLORS.gold}; }
-  .standing-slot .team-flag { font-size: 1.3rem; }
+  .standing-slot .team-flag { display: flex; align-items: center; justify-content: center; min-height: 28px; }
   .standing-slot .team-nm { font-size: 0.6rem; color: #aaa; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; font-family: 'Barlow', sans-serif; }
 
   .outright-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -304,10 +374,34 @@ const css = `
 
   .lb-row { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid #1a1a1a; transition: background 0.15s; }
   .lb-row:last-child { border-bottom: none; }
+  .lb-row.clickable { cursor: pointer; }
+  .lb-row.clickable:hover { background: rgba(201,168,76,0.04); }
+  .lb-row.expanded { border-bottom: none; }
   .lb-you { background: rgba(201,168,76,0.05); border-left: 3px solid ${COLORS.gold}; padding-left: 11px; margin: 0 -14px; padding-right: 14px; }
   .lb-breakdown { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
   .lb-cat { font-size: 0.65rem; color: #555; font-family: 'Noto Sans', sans-serif; padding: 1px 6px; background: rgba(255,255,255,0.03); border: 1px solid #1a1a1a; }
   .lb-cat span { color: ${COLORS.gold}; font-weight: 700; }
+  .lb-chevron { font-size: 0.65rem; color: #444; transition: transform 0.2s; flex-shrink: 0; }
+  .lb-chevron.open { transform: rotate(180deg); }
+  .lb-pred-panel { background: #0c0c0c; border: 1px solid #222; border-top: none; margin: 0 -14px; padding: 14px; margin-bottom: 12px; }
+  .lb-pred-panel .group-tabs { margin-bottom: 10px; flex-wrap: wrap; gap: 4px; }
+  .lb-pred-panel .group-tab { font-size: 0.68rem; padding: 4px 8px; }
+  .pred-table { width: 100%; border-collapse: collapse; font-size: 0.72rem; }
+  .pred-table td { padding: 5px 6px; border-bottom: 1px solid #181818; vertical-align: middle; white-space: nowrap; }
+  .pred-table tr:last-child td { border-bottom: none; }
+  .pred-team { max-width: 110px; overflow: hidden; text-overflow: ellipsis; color: #bbb; }
+  .pred-team--home { text-align: right; }
+  .pred-team--away { text-align: left; }
+  .pred-team span { vertical-align: middle; margin: 0 4px; }
+  .pred-score { text-align: center; font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1rem; color: ${COLORS.gold}; width: 56px; letter-spacing: 1px; }
+  .pred-scorer { color: #555; font-size: 0.65rem; padding-left: 8px; max-width: 100px; overflow: hidden; text-overflow: ellipsis; }
+  .pred-outrights { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 6px; margin-top: 10px; }
+  .pred-outright-item { background: #111; border: 1px solid #1e1e1e; padding: 7px 10px; }
+  .pred-outright-label { font-size: 0.62rem; color: #555; font-family: 'Barlow', sans-serif; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 3px; }
+  .pred-outright-val { font-size: 0.78rem; color: #ccc; font-weight: 600; font-family: 'Barlow', sans-serif; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lb-locked-notice { display: flex; align-items: center; gap: 10px; background: rgba(201,168,76,0.04); border: 1px solid rgba(201,168,76,0.15); padding: 16px; margin-bottom: 16px; }
+  .lb-locked-notice-icon { font-size: 1.4rem; flex-shrink: 0; }
+  .lb-locked-notice-text { font-size: 0.82rem; color: #888; font-family: 'Noto Sans', sans-serif; line-height: 1.5; }
 
   .card { background: #0d0d0d; border: 1px solid #1e1e1e; overflow: hidden; margin-bottom: 12px; transition: border-color 0.2s; }
   .card:hover { border-color: #2a2a2a; }
@@ -428,6 +522,14 @@ const css = `
   .lp-cta-sub { font-size: 0.9rem; color: #666; margin-bottom: 2rem; }
 
   .lp-signup-form { background: #0d0d0d; border: 1px solid #1e1e1e; padding: 2rem; max-width: 440px; margin: 0 auto; text-align: left; }
+  .lp-auth-tabs { display: flex; gap: 0; margin-bottom: 1.25rem; border-bottom: 1px solid #2a2a2a; }
+  .lp-auth-tab { flex: 1; padding: 10px 6px; font-family: 'Barlow', sans-serif; font-size: 0.68rem; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; background: none; border: none; color: #555; cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.2s; }
+  .lp-auth-tab:hover { color: #aaa; }
+  .lp-auth-tab.active { color: ${COLORS.gold}; border-bottom-color: ${COLORS.gold}; }
+  .lp-auth-hint { font-size: 0.72rem; color: #666; margin-top: 6px; line-height: 1.45; font-family: 'Noto Sans', sans-serif; }
+  .lp-auth-link { background: none; border: none; color: #888; font-size: 0.72rem; cursor: pointer; text-decoration: underline; margin-top: 10px; padding: 0; font-family: inherit; display: inline; }
+  .lp-auth-link:hover { color: ${COLORS.gold}; }
+  .lp-auth-note { font-size: 0.82rem; color: #888; margin-bottom: 1rem; line-height: 1.5; }
   .lp-trust { display: flex; justify-content: center; gap: 24px; margin-top: 2rem; flex-wrap: wrap; }
   .lp-trust-item { display: flex; align-items: center; gap: 6px; font-family: 'Barlow', sans-serif; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #555; }
   .lp-trust-icon { font-size: 1rem; }
@@ -493,11 +595,10 @@ const css = `
 
     .card-header { padding: 8px 10px; flex-wrap: wrap; gap: 6px; }
     .match-row { padding: 12px 10px; }
-    .match-teams { gap: 6px; }
-    .team-name { font-size: 0.78rem; letter-spacing: 0; }
-    .match-flag { font-size: 1.3rem; }
+    .score-line { gap: 8px 10px; }
+    .score-inline-name { font-size: 0.65rem; }
+    .score-team-inline { max-width: min(120px, 38vw); }
     .score-input { width: 48px; height: 48px; font-size: 1.4rem; }
-    .score-dash { font-size: 1.2rem; }
     .scorer-row { flex-direction: column; align-items: stretch; gap: 6px; }
     .scorer-label { text-align: left; }
     .styled-select { width: 100%; flex: none; }
@@ -545,8 +646,10 @@ const css = `
     .hero-weare { font-size: 1rem; }
     .hero-eyebrow { font-size: 0.65rem; letter-spacing: 3px; }
     .section-title { font-size: 1.3rem; }
-    .team-name { font-size: 0.72rem; }
-    .match-flag { font-size: 1.1rem; }
+    .score-cluster--home, .score-cluster--away { justify-content: center; flex: 1 1 100%; }
+    .vs { width: 100%; text-align: center; order: 2; margin: 4px 0; }
+    .score-cluster--home { order: 1; }
+    .score-cluster--away { order: 3; }
     .score-input { width: 44px; height: 44px; font-size: 1.2rem; }
     .actual-score-val { font-size: 1.5rem; }
     .group-tab { padding: 5px 8px; font-size: 0.72rem; }
@@ -613,12 +716,78 @@ function FaqItem({ q, a }) {
   );
 }
 
-function SignupScreen({ onComplete, submissionClosed, countdownLabel, deadlineLabel, firstKickoffLabel }) {
-  const [form, setForm] = useState({ name: "", email: "", username: "" });
-  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+function SignupScreen({
+  needsProfileCompletion,
+  onCompleteProfile,
+  onPasswordSignUp,
+  onPasswordSignIn,
+  onForgotPassword,
+  onLocalComplete,
+  submissionClosed,
+  countdownLabel,
+  deadlineLabel,
+  firstKickoffLabel,
+}) {
+  const [authTab, setAuthTab] = useState("signup");
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    username: "",
+    password: "",
+    password2: "",
+  });
+  const [busy, setBusy] = useState(false);
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const scrollToSignup = () => {
     document.getElementById("lp-signup")?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const handleSignUp = async () => {
+    if (!form.name?.trim() || !form.email?.trim()) return;
+    if (!form.password || form.password.length < 6) return;
+    if (form.password !== form.password2) return;
+    setBusy(true);
+    try {
+      await onPasswordSignUp({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        username: form.username.trim(),
+        password: form.password,
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSignIn = async () => {
+    if (!form.email?.trim() || !form.password) return;
+    setBusy(true);
+    try {
+      await onPasswordSignIn(form.email.trim(), form.password);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleForgot = async () => {
+    if (!form.email?.trim()) return;
+    setBusy(true);
+    try {
+      await onForgotPassword(form.email.trim());
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleProfileOnly = async () => {
+    if (!form.name?.trim()) return;
+    setBusy(true);
+    try {
+      await onCompleteProfile({ name: form.name.trim(), username: form.username.trim() });
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -670,7 +839,7 @@ function SignupScreen({ onComplete, submissionClosed, countdownLabel, deadlineLa
               <div className="lp-step-num">01</div>
               <div className="lp-step-icon">✍️</div>
               <div className="lp-step-label">Sign Up</div>
-              <div className="lp-step-desc">Create your account with just a name and email</div>
+              <div className="lp-step-desc">Create your account with email and password</div>
               <span className="lp-step-arrow">→</span>
             </div>
             <div className="lp-step">
@@ -860,31 +1029,126 @@ function SignupScreen({ onComplete, submissionClosed, countdownLabel, deadlineLa
               The deadline was <strong style={{ color: COLORS.gold }}>{deadlineLabel}</strong> (one hour before the first match). New signups are not accepted. If you already entered, sign in from your saved session or return on a device where you were logged in.
             </div>
           </div>
-        ) : (
+        ) : !isSupabaseConfigured ? (
           <div className="lp-signup-form">
+            <p className="lp-auth-hint" style={{ marginBottom: "1rem" }}>
+              Cloud sync is not configured — your picks are saved in this browser only.
+            </p>
             <div className="form-field">
               <label>Full name</label>
-              <input className="form-input" placeholder="Your name" value={form.name} onChange={e => set("name", e.target.value)} aria-label="Full name" autoComplete="name" />
+              <input className="form-input" placeholder="Your name" value={form.name} onChange={(e) => set("name", e.target.value)} aria-label="Full name" autoComplete="name" />
             </div>
             <div className="form-field">
               <label>Email address</label>
-              <input className="form-input" type="email" placeholder="you@example.com" value={form.email} onChange={e => set("email", e.target.value)} aria-label="Email address" autoComplete="email" />
+              <input className="form-input" type="email" placeholder="you@example.com" value={form.email} onChange={(e) => set("email", e.target.value)} aria-label="Email address" autoComplete="email" />
             </div>
             <div className="form-field">
               <label>Display username</label>
-              <input className="form-input" placeholder="Pick a nickname" value={form.username} onChange={e => set("username", e.target.value)} aria-label="Display username" autoComplete="username" />
+              <input className="form-input" placeholder="Pick a nickname" value={form.username} onChange={(e) => set("username", e.target.value)} aria-label="Display username" autoComplete="username" />
             </div>
             <button
               type="button"
               className="btn-primary"
               style={{ marginTop: 8 }}
-              onClick={() => { if (form.name && form.email) onComplete(form); }}
+              disabled={busy}
+              onClick={() => {
+                if (form.name && form.email) onLocalComplete({ name: form.name, email: form.email, username: form.username });
+              }}
             >
               Start Predicting →
             </button>
             <div style={{ textAlign: "center", marginTop: 8, fontSize: "0.72rem", color: "#555" }}>
-              You'll pay the £10 entry fee after filling in your predictions
+              You&apos;ll pay the £10 entry fee after filling in your predictions
             </div>
+          </div>
+        ) : needsProfileCompletion ? (
+          <div className="lp-signup-form">
+            <p className="lp-auth-note">Add your display name and username for the leaderboard, then continue.</p>
+            <div className="form-field">
+              <label>Full name</label>
+              <input className="form-input" placeholder="Your name" value={form.name} onChange={(e) => set("name", e.target.value)} aria-label="Full name" autoComplete="name" />
+            </div>
+            <div className="form-field">
+              <label>Display username</label>
+              <input className="form-input" placeholder="Pick a nickname" value={form.username} onChange={(e) => set("username", e.target.value)} aria-label="Display username" autoComplete="username" />
+            </div>
+            <button type="button" className="btn-primary" style={{ marginTop: 8 }} disabled={busy || !form.name?.trim()} onClick={handleProfileOnly}>
+              {busy ? "Saving…" : "Continue to predictions →"}
+            </button>
+          </div>
+        ) : (
+          <div className="lp-signup-form">
+            <div className="lp-auth-tabs" role="tablist" aria-label="Sign up options">
+              <button type="button" role="tab" aria-selected={authTab === "signup"} className={`lp-auth-tab${authTab === "signup" ? " active" : ""}`} onClick={() => setAuthTab("signup")}>
+                Create account
+              </button>
+              <button type="button" role="tab" aria-selected={authTab === "signin"} className={`lp-auth-tab${authTab === "signin" ? " active" : ""}`} onClick={() => setAuthTab("signin")}>
+                Sign in
+              </button>
+            </div>
+
+            {authTab === "signup" && (
+              <>
+                <div className="form-field">
+                  <label>Full name</label>
+                  <input className="form-input" placeholder="Your name" value={form.name} onChange={(e) => set("name", e.target.value)} aria-label="Full name" autoComplete="name" />
+                </div>
+                <div className="form-field">
+                  <label>Email address</label>
+                  <input className="form-input" type="email" placeholder="you@example.com" value={form.email} onChange={(e) => set("email", e.target.value)} aria-label="Email address" autoComplete="email" />
+                </div>
+                <div className="form-field">
+                  <label>Display username</label>
+                  <input className="form-input" placeholder="Pick a nickname" value={form.username} onChange={(e) => set("username", e.target.value)} aria-label="Display username" autoComplete="username" />
+                </div>
+                <div className="form-field">
+                  <label>Password</label>
+                  <input className="form-input" type="password" placeholder="At least 6 characters" value={form.password} onChange={(e) => set("password", e.target.value)} aria-label="Password" autoComplete="new-password" />
+                </div>
+                <div className="form-field">
+                  <label>Confirm password</label>
+                  <input className="form-input" type="password" placeholder="Repeat password" value={form.password2} onChange={(e) => set("password2", e.target.value)} aria-label="Confirm password" autoComplete="new-password" />
+                </div>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  style={{ marginTop: 8 }}
+                  disabled={
+                    busy ||
+                    !form.name?.trim() ||
+                    !form.email?.trim() ||
+                    !form.password ||
+                    form.password.length < 6 ||
+                    form.password !== form.password2
+                  }
+                  onClick={handleSignUp}
+                >
+                  {busy ? "Creating account…" : "Create account & start predicting →"}
+                </button>
+                <p className="lp-auth-hint">After sign-up you can save predictions to your account. You&apos;ll pay the £10 entry fee when you&apos;re ready to lock in.</p>
+              </>
+            )}
+
+            {authTab === "signin" && (
+              <>
+                <div className="form-field">
+                  <label>Email address</label>
+                  <input className="form-input" type="email" placeholder="you@example.com" value={form.email} onChange={(e) => set("email", e.target.value)} aria-label="Email address" autoComplete="email" />
+                </div>
+                <div className="form-field">
+                  <label>Password</label>
+                  <input className="form-input" type="password" placeholder="Your password" value={form.password} onChange={(e) => set("password", e.target.value)} aria-label="Password" autoComplete="current-password" />
+                </div>
+                <button type="button" className="btn-primary" style={{ marginTop: 8 }} disabled={busy || !form.email?.trim() || !form.password} onClick={handleSignIn}>
+                  {busy ? "Signing in…" : "Sign in →"}
+                </button>
+                <button type="button" className="lp-auth-link" onClick={handleForgot}>
+                  Forgot password?
+                </button>
+                <p className="lp-auth-hint">We&apos;ll email you a link to set a new password.</p>
+              </>
+            )}
+
           </div>
         )}
         <div className="lp-trust">
@@ -963,15 +1227,24 @@ function MatchesScreen({ preds, setPreds, results, readOnly }) {
               </div>
             </div>
             <div className="match-row">
-              <div className="match-teams">
-                <span className="team-name"><span className="match-flag">{FLAG_EMOJI[m.home] || "🏳"}</span>{m.home}</span>
-                <span className="vs">vs</span>
-                <span className="team-name away">{m.away}<span className="match-flag">{FLAG_EMOJI[m.away] || "🏳"}</span></span>
-              </div>
-              <div className="score-inputs" role="group" aria-label={`Score prediction for ${m.home} vs ${m.away}`}>
-                <ScoreInput value={p.home ?? ""} onChange={v => setMatchPred(key, "home", v)} label={`${m.home} goals`} disabled={readOnly} />
-                <span className="score-dash" aria-hidden="true">—</span>
-                <ScoreInput value={p.away ?? ""} onChange={v => setMatchPred(key, "away", v)} label={`${m.away} goals`} disabled={readOnly} />
+              <div className="score-line" role="group" aria-label={`Score prediction for ${m.home} vs ${m.away}`}>
+                <div className="score-cluster score-cluster--home">
+                  <span className="score-team-inline">
+                    <TeamFlag team={m.home} size={24} />
+                    <span className="score-inline-name">{m.home}</span>
+                  </span>
+                  <ScoreInput value={p.home ?? ""} onChange={(v) => setMatchPred(key, "home", v)} label={`${m.home} goals`} disabled={readOnly} />
+                </div>
+                <span className="vs" aria-hidden="true">
+                  vs
+                </span>
+                <div className="score-cluster score-cluster--away">
+                  <ScoreInput value={p.away ?? ""} onChange={(v) => setMatchPred(key, "away", v)} label={`${m.away} goals`} disabled={readOnly} />
+                  <span className="score-team-inline">
+                    <span className="score-inline-name">{m.away}</span>
+                    <TeamFlag team={m.away} size={24} />
+                  </span>
+                </div>
               </div>
               <div className="scorer-row">
                 <span className="scorer-label">⚽ Anytime scorer:</span>
@@ -981,7 +1254,7 @@ function MatchesScreen({ preds, setPreds, results, readOnly }) {
                     const teamPlayers = PLAYERS[team] || [];
                     if (!teamPlayers.length) return null;
                     return (
-                      <optgroup key={team} label={`${FLAG_EMOJI[team] || "🏳"} ${team}`}>
+                      <optgroup key={team} label={team}>
                         {teamPlayers.map((pl, i) => (
                           <option key={i} value={`${team}|${pl}`}>{pl}</option>
                         ))}
@@ -1087,7 +1360,7 @@ function StandingsScreen({ preds, setPreds, readOnly }) {
                     setPreds(prev => ({ ...prev, [`standings_${activeGroup}`]: updated }));
                   }
                 }}>
-                <span>{FLAG_EMOJI[team] || "🏳"}</span>
+                <TeamFlag team={team} size={20} />
                 <span>{team}</span>
               </div>
             ))}
@@ -1106,7 +1379,7 @@ function StandingsScreen({ preds, setPreds, readOnly }) {
                   <div className="pos">{["1st","2nd","3rd","4th"][pos]}</div>
                   {team ? (
                     <>
-                      <div className="team-flag">{FLAG_EMOJI[team] || "🏳"}</div>
+                      <div className="team-flag"><TeamFlag team={team} size={26} /></div>
                       <div className="team-nm">{team}</div>
                     </>
                   ) : (
@@ -1188,9 +1461,9 @@ function OutrightsScreen({ preds, setPreds, readOnly }) {
                       <option key={o.value} value={o.value}>{o.label}</option>
                     ))
                   : kind === "team" || (!kind && !playerKinds.has(key))
-                    ? ALL_TEAMS.filter(t => !t.startsWith("UEFA") && !t.startsWith("IC")).map(t => <option key={t} value={t}>{FLAG_EMOJI[t] || "🏳"} {t}</option>)
+                    ? ALL_TEAMS.filter(t => !t.startsWith("UEFA") && !t.startsWith("IC")).map(t => <option key={t} value={t}>{t}</option>)
                     : Object.entries(PLAYERS).filter(([t]) => !t.startsWith("UEFA") && !t.startsWith("IC")).map(([t, players]) => (
-                      <optgroup key={t} label={`${FLAG_EMOJI[t] || "🏳"} ${t}`}>
+                      <optgroup key={t} label={t}>
                         {players.map((pl, i) => (
                           <option key={i} value={`${t}|${pl}`}>{pl}</option>
                         ))}
@@ -1247,7 +1520,81 @@ function RulesScreen() {
   );
 }
 
-function LeaderboardScreen({ results, allUsers, currentUserId }) {
+function UserPredictionsPanel({ predictions }) {
+  const [activeGroup, setActiveGroup] = useState("A");
+  const groups = Object.keys(TEAMS);
+  const groupMatches = GROUP_MATCHES.filter(m => m.group === activeGroup);
+  const preds = predictions || {};
+
+  const outrightSummary = [
+    { key: "winner", icon: "🏆", label: "Winner" },
+    { key: "runner_up", icon: "🥈", label: "Runner-up" },
+    { key: "third", icon: "🥉", label: "3rd place" },
+    { key: "golden_boot", icon: "👟", label: "Golden Boot" },
+    { key: "golden_glove", icon: "🧤", label: "Golden Glove" },
+    { key: "best_young", icon: "🌟", label: "Best Young Player" },
+    { key: "top_scoring_team", icon: "🔥", label: "Top Scoring Team" },
+    { key: "england_progress", icon: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", label: "England" },
+    { key: "total_goals", icon: "⚽", label: "Total Goals" },
+  ];
+
+  const formatVal = (v) => {
+    if (!v && v !== 0) return null;
+    return typeof v === "string" && v.includes("|") ? v.split("|")[1] : String(v);
+  };
+
+  return (
+    <div className="lb-pred-panel">
+      <div className="group-tabs">
+        {groups.map(g => (
+          <button key={g} className={`group-tab${activeGroup === g ? " active" : ""}`} onClick={e => { e.stopPropagation(); setActiveGroup(g); }}>
+            {g}
+          </button>
+        ))}
+      </div>
+      <table className="pred-table">
+        <tbody>
+          {groupMatches.map(m => {
+            const key = `${m.home}-${m.away}`;
+            const p = preds[key] || {};
+            const hasScore = p.home !== undefined && p.home !== "" && p.away !== undefined && p.away !== "";
+            const scorer = p.scorer ? formatVal(p.scorer) : null;
+            return (
+              <tr key={key}>
+                <td className="pred-team pred-team--home">
+                  <TeamFlag team={m.home} size={14} />
+                  <span>{m.home}</span>
+                </td>
+                <td className="pred-score">{hasScore ? `${p.home}–${p.away}` : "–"}</td>
+                <td className="pred-team pred-team--away">
+                  <TeamFlag team={m.away} size={14} />
+                  <span>{m.away}</span>
+                </td>
+                <td className="pred-scorer">{scorer || ""}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div className="pred-outrights">
+        {outrightSummary.map(({ key, icon, label }) => {
+          const display = formatVal(preds[key]);
+          if (!display) return null;
+          return (
+            <div key={key} className="pred-outright-item">
+              <span className="pred-outright-label">{icon} {label}</span>
+              <span className="pred-outright-val">{display}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function LeaderboardScreen({ results, allUsers, currentUserId, submissionClosed }) {
+  const [expandedId, setExpandedId] = useState(null);
+
   const hasResults = results && Object.values(results.matches || {}).some(
     m => m.isFinished || m.isLive
   );
@@ -1283,6 +1630,22 @@ function LeaderboardScreen({ results, allUsers, currentUserId }) {
   const entryCount = scored.length;
   const { grossPot, costAmount, prizePot } = getPotBreakdown(entryCount);
 
+  if (!submissionClosed) {
+    return (
+      <div className="section">
+        <div className="section-title">Leaderboard</div>
+        <div className="section-title-line" />
+        <div className="lb-locked-notice">
+          <span className="lb-locked-notice-icon">🔒</span>
+          <div className="lb-locked-notice-text">
+            <strong style={{ color: COLORS.gold, display: "block", marginBottom: 4 }}>Hidden until entry closes</strong>
+            The leaderboard and all participants' predictions will be revealed once the entry deadline passes. This keeps the competition fair — no one can see others' picks while entries are still open.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="section">
       <div className="section-title">Leaderboard</div>
@@ -1308,28 +1671,42 @@ function LeaderboardScreen({ results, allUsers, currentUserId }) {
         <div style={{ padding: "14px" }}>
           {scored.length === 0 ? (
             <div style={{ padding: "12px 0", textAlign: "center" }}>
-              <span style={{ fontSize: "0.75rem", color: "#444" }}>No entrants yet — complete signup to join</span>
+              <span style={{ fontSize: "0.75rem", color: "#444" }}>No entrants yet</span>
             </div>
           ) : (
-            scored.map((p, i) => (
-              <div key={p.id} className={`lb-row${p.id === currentUserId ? " lb-you" : ""}`}>
-                <span className={`lb-rank${i === 0 ? " top1" : i === 1 ? " top2" : i === 2 ? " top3" : ""}`}>
-                  {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`}
-                </span>
-                <div className="lb-avatar">{p.avatar}</div>
-                <div style={{ flex: 1 }}>
-                  <div className="lb-name">{p.name}</div>
-                  {hasResults && (
-                    <div className="lb-breakdown">
-                      <span className="lb-cat">Matches: <span>{p.matchPoints}</span></span>
-                      <span className="lb-cat">Groups: <span>{p.standingsPoints}</span></span>
-                      <span className="lb-cat">Outrights: <span>{p.outrightPoints}</span></span>
+            scored.map((p, i) => {
+              const user = allUsers.find(u => u.id === p.id);
+              const isExpanded = expandedId === p.id;
+              return (
+                <div key={p.id}>
+                  <div
+                    className={`lb-row clickable${p.id === currentUserId ? " lb-you" : ""}${isExpanded ? " expanded" : ""}`}
+                    onClick={() => setExpandedId(isExpanded ? null : p.id)}
+                    title="Click to view predictions"
+                  >
+                    <span className={`lb-rank${i === 0 ? " top1" : i === 1 ? " top2" : i === 2 ? " top3" : ""}`}>
+                      {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`}
+                    </span>
+                    <div className="lb-avatar">{p.avatar}</div>
+                    <div style={{ flex: 1 }}>
+                      <div className="lb-name">{p.name}</div>
+                      {hasResults && (
+                        <div className="lb-breakdown">
+                          <span className="lb-cat">Matches: <span>{p.matchPoints}</span></span>
+                          <span className="lb-cat">Groups: <span>{p.standingsPoints}</span></span>
+                          <span className="lb-cat">Outrights: <span>{p.outrightPoints}</span></span>
+                        </div>
+                      )}
                     </div>
+                    <div className="lb-pts">{p.total}pts</div>
+                    <span className={`lb-chevron${isExpanded ? " open" : ""}`}>▼</span>
+                  </div>
+                  {isExpanded && user && (
+                    <UserPredictionsPanel predictions={user.predictions} />
                   )}
                 </div>
-                <div className="lb-pts">{p.total}pts</div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>
@@ -1515,6 +1892,7 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [deadlineTick, setDeadlineTick] = useState(0);
+  const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
 
   useEffect(() => {
     const id = setInterval(() => setDeadlineTick((t) => t + 1), 1000);
@@ -1538,6 +1916,13 @@ export default function App() {
   });
   const predictionsReadOnly = Boolean(profile?.locked || submissionClosed);
 
+  // Redirect off leaderboard if entry hasn't closed yet (tab is hidden, but guard against direct state)
+  useEffect(() => {
+    if (screen === "leaderboard" && !submissionClosed) {
+      setScreen("matches");
+    }
+  }, [screen, submissionClosed]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -1552,17 +1937,24 @@ export default function App() {
             setScreen(local.screen || "matches");
           }
         }
-        if (isSupabaseConfigured) {
-          await ensureSupabaseSession();
-          const row = await fetchPredictionsRow();
-          if (!cancelled && row?.predictions && typeof row.predictions === "object") {
-            setPreds(row.predictions);
+        if (isSupabaseConfigured && supabase) {
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          if (session?.user) {
+            const prof = await fetchProfile();
+            if (!cancelled && prof) setProfile(prof);
+            if (!cancelled && !prof) {
+              setNeedsProfileCompletion(true);
+              setScreen("signup");
+            } else if (!cancelled && prof?.name && prof?.email) {
+              setScreen((s) => (s === "signup" ? "matches" : s));
+            }
+            const row = await fetchPredictionsRow();
+            if (!cancelled && row?.predictions && typeof row.predictions === "object") {
+              setPreds(row.predictions);
+            }
           }
-          if (!cancelled && row?.profile?.name && row?.profile?.email) {
-            setScreen((s) => (s === "signup" ? "matches" : s));
-          }
-          const prof = await fetchProfile();
-          if (!cancelled && prof) setProfile(prof);
         }
       } catch (e) {
         console.warn("Load predictions:", e);
@@ -1627,6 +2019,30 @@ export default function App() {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
+  useEffect(() => {
+    if (!supabase) return;
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user) {
+        setCurrentUserId(session.user.id);
+        const prof = await fetchProfile();
+        setProfile(prof);
+        if (!prof) {
+          setNeedsProfileCompletion(true);
+          setScreen("signup");
+        } else {
+          setNeedsProfileCompletion(false);
+        }
+      } else {
+        setCurrentUserId(null);
+        setProfile(null);
+        setNeedsProfileCompletion(false);
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   const persistLocal = (nextPreds, nextScreen) => {
     localStorage.setItem(
       STORAGE_KEY,
@@ -1643,33 +2059,121 @@ export default function App() {
     setTimeout(() => setToast(null), 2500);
   };
 
-  const handleSignupComplete = async (form) => {
+  const finalizeEntryAfterAuth = async (form) => {
     if (Date.now() >= getSubmissionDeadlineMs(results)) {
       showToast("Submissions are closed — new entries are not accepted.");
       return;
     }
     setScreen("matches");
     persistLocal(preds, "matches");
-    if (isSupabaseConfigured) {
-      const r = await upsertPredictions(preds, {
-        name: form.name,
-        email: form.email,
-        username: form.username || "",
-      });
-      if (!r.ok) showToast(`Saved locally — cloud sync: ${r.error || "unavailable"}`);
+    if (!isSupabaseConfigured) return;
+    const profResult = await upsertProfile({
+      name: form.name,
+      email: form.email,
+      username: form.username || `user_${Date.now()}`,
+    });
+    if (!profResult.ok) showToast(`Profile sync: ${profResult.error || "unavailable"}`);
+    const r = await upsertPredictions(preds, {
+      name: form.name,
+      email: form.email,
+      username: form.username || "",
+    });
+    if (!r.ok) showToast(`Predictions sync: ${r.error || "unavailable"}`);
+    const prof = await fetchProfile();
+    if (prof) setProfile(prof);
+    sendEmail(form.email, "welcome", { name: form.name }).catch(() => {});
+  };
 
-      const profResult = await upsertProfile({
-        name: form.name,
-        email: form.email,
-        username: form.username || `user_${Date.now()}`,
-      });
-      if (profResult.ok) {
-        const prof = await fetchProfile();
-        if (prof) setProfile(prof);
-      }
-
-      sendEmail(form.email, "welcome", { name: form.name }).catch(() => {});
+  const handleLocalOnlyComplete = (form) => {
+    if (Date.now() >= getSubmissionDeadlineMs(results)) {
+      showToast("Submissions are closed — new entries are not accepted.");
+      return;
     }
+    setScreen("matches");
+    persistLocal(preds, "matches");
+    showToast("Saved locally — add Supabase env vars to sync to the cloud.");
+  };
+
+  const handlePasswordSignUp = async (form) => {
+    const r = await signUpWithPassword({
+      email: form.email,
+      password: form.password,
+      name: form.name,
+      username: form.username,
+    });
+    if (!r.ok) {
+      showToast(r.error);
+      return;
+    }
+    if (r.session) {
+      await finalizeEntryAfterAuth(form);
+      setNeedsProfileCompletion(false);
+    } else {
+      showToast("Check your email to confirm your account, then sign in below.");
+    }
+  };
+
+  const handlePasswordSignIn = async (email, password) => {
+    const r = await signInWithPassword({ email, password });
+    if (!r.ok) {
+      showToast(r.error);
+      return;
+    }
+    const row = await fetchPredictionsRow();
+    if (row?.predictions && typeof row.predictions === "object") {
+      setPreds(row.predictions);
+      persistLocal(row.predictions, "matches");
+    } else {
+      persistLocal(preds, "matches");
+    }
+    const prof = await fetchProfile();
+    if (prof?.name && prof?.email) {
+      setProfile(prof);
+      setNeedsProfileCompletion(false);
+      setScreen("matches");
+    } else {
+      setNeedsProfileCompletion(true);
+      showToast("Add your name and username to continue.");
+    }
+  };
+
+  const handleCompleteProfile = async ({ name, username }) => {
+    const session = await ensureSupabaseSession();
+    if (!session?.user?.email) {
+      showToast("Not signed in");
+      return;
+    }
+    if (Date.now() >= getSubmissionDeadlineMs(results)) {
+      showToast("Submissions are closed.");
+      return;
+    }
+    const profResult = await upsertProfile({
+      name,
+      email: session.user.email,
+      username: username || `user_${Date.now()}`,
+    });
+    if (!profResult.ok) {
+      showToast(profResult.error);
+      return;
+    }
+    const r = await upsertPredictions(preds, {
+      name,
+      email: session.user.email,
+      username: username || "",
+    });
+    if (!r.ok) showToast(`Predictions: ${r.error}`);
+    const prof = await fetchProfile();
+    if (prof) setProfile(prof);
+    setNeedsProfileCompletion(false);
+    setScreen("matches");
+    persistLocal(preds, "matches");
+    sendEmail(session.user.email, "welcome", { name }).catch(() => {});
+  };
+
+  const handleForgotPassword = async (email) => {
+    const r = await requestPasswordReset(email);
+    if (!r.ok) showToast(r.error);
+    else showToast("Check your email for the password reset link.");
   };
 
   const handlePayment = async () => {
@@ -1705,7 +2209,7 @@ export default function App() {
     { id: "standings", label: "Standings" },
     { id: "outrights", label: "Outrights" },
     { id: "submit", label: profile?.paid ? "✓ Paid" : "Submit" },
-    { id: "leaderboard", label: "Leaderboard" },
+    ...(submissionClosed ? [{ id: "leaderboard", label: "Leaderboard" }] : []),
     { id: "rules", label: "Rules" },
   ] : [];
 
@@ -1717,6 +2221,7 @@ export default function App() {
     setAllUsers([]);
     setCurrentUserId(null);
     setResults(null);
+    setNeedsProfileCompletion(false);
     setScreen("signup");
   };
 
@@ -1776,7 +2281,12 @@ export default function App() {
 
         {screen === "signup" && (
           <SignupScreen
-            onComplete={handleSignupComplete}
+            needsProfileCompletion={needsProfileCompletion}
+            onCompleteProfile={handleCompleteProfile}
+            onPasswordSignUp={handlePasswordSignUp}
+            onPasswordSignIn={handlePasswordSignIn}
+            onForgotPassword={handleForgotPassword}
+            onLocalComplete={handleLocalOnlyComplete}
             submissionClosed={submissionClosed}
             countdownLabel={countdownLabel}
             deadlineLabel={deadlineLabel}
@@ -1812,7 +2322,7 @@ export default function App() {
         {screen === "standings" && <StandingsScreen preds={preds} setPreds={predictionsReadOnly ? () => {} : setPreds} readOnly={predictionsReadOnly} />}
         {screen === "outrights" && <OutrightsScreen preds={preds} setPreds={predictionsReadOnly ? () => {} : setPreds} readOnly={predictionsReadOnly} />}
         {screen === "submit" && <SubmitScreen preds={preds} profile={profile} onPay={handlePayment} paymentLoading={paymentLoading} submissionClosed={submissionClosed} />}
-        {screen === "leaderboard" && <LeaderboardScreen results={results} allUsers={allUsers} currentUserId={currentUserId} />}
+        {screen === "leaderboard" && <LeaderboardScreen results={results} allUsers={allUsers} currentUserId={currentUserId} submissionClosed={submissionClosed} />}
         {screen === "rules" && <RulesScreen />}
 
         {screen !== "signup" && screen !== "leaderboard" && screen !== "rules" && screen !== "submit" && !predictionsReadOnly && (

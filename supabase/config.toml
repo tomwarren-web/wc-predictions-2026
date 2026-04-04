@@ -1,0 +1,10 @@
+# Browser preflight (OPTIONS) requests do not include Authorization. Supabase's gateway
+# must not require JWT for OPTIONS or CORS fails. We verify the user JWT inside each
+# function's POST handler instead.
+# https://supabase.com/docs/guides/functions/function-configuration
+
+[functions.send-email]
+verify_jwt = false
+
+[functions.create-checkout]
+verify_jwt = false
