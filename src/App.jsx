@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   isSupabaseConfigured,
   supabase,
@@ -14,6 +14,7 @@ import {
   signUpWithPassword,
   signInWithPassword,
   requestPasswordReset,
+  ensureProfileFromAuthSession,
 } from "./lib/supabase";
 import { isApiFootballConfigured, fetchAllResults, hasLiveMatches, getMatchResultForTeams } from "./lib/api-football";
 import { getSubmissionDeadlineMs, getFirstKickoffMs, formatCountdown, formatDeadlineLocal } from "./lib/tournament-deadline";
@@ -227,7 +228,7 @@ const css = `
   *:focus-visible { outline: 2px solid ${COLORS.gold}; outline-offset: 2px; }
   input:focus-visible, select:focus-visible { outline-offset: 0; }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
-  .app { max-width: 900px; margin: 0 auto; padding: 0 0 80px; }
+  .app { max-width: 900px; margin: 0 auto; padding: 0 0 80px; padding-bottom: max(80px, calc(60px + env(safe-area-inset-bottom, 0px))); }
 
   .hero { background: #000; padding: 0; border-bottom: 1px solid #222; position: relative; overflow: hidden; }
   .hero-pattern { position: absolute; inset: 0; opacity: 0.04; background-image: repeating-linear-gradient(0deg, transparent, transparent 38px, #fff 38px, #fff 39px), repeating-linear-gradient(90deg, transparent, transparent 38px, #fff 38px, #fff 39px); }
@@ -243,13 +244,35 @@ const css = `
   .hero-tag { font-family: 'Barlow', sans-serif; font-size: 0.72rem; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: #666; border: 1px solid #2a2a2a; border-radius: 3px; padding: 4px 10px; }
   .hero-divider { height: 3px; background: ${COLORS.gold}; }
 
-  .nav { display: flex; overflow-x: auto; gap: 0; background: #0a0a0a; border-bottom: 1px solid #1e1e1e; position: sticky; top: 0; z-index: 10; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; }
-  .nav::-webkit-scrollbar { display: none; }
+  .nav { display: flex; align-items: stretch; gap: 0; background: #0a0a0a; border-bottom: 1px solid #1e1e1e; position: sticky; top: 0; z-index: 10; overflow: visible; }
+  .nav-tabs-scroll { display: flex; flex: 1; min-width: 0; overflow-x: auto; gap: 0; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; }
+  .nav-tabs-scroll::-webkit-scrollbar { display: none; }
   .nav-btn { flex-shrink: 0; padding: 13px 18px; font-family: 'Barlow Condensed', sans-serif; font-size: 0.85rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; background: none; border: none; color: #555; cursor: pointer; white-space: nowrap; border-bottom: 3px solid transparent; transition: all 0.2s; min-height: 48px; display: flex; align-items: center; }
   .nav-btn.active { color: ${COLORS.gold}; border-bottom-color: ${COLORS.gold}; }
   .nav-btn:hover:not(.active) { color: #ccc; }
-  .nav-signout { margin-left: auto; padding: 13px 16px; font-family: 'Barlow', sans-serif; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.5px; background: none; border: none; color: #444; cursor: pointer; white-space: nowrap; transition: color 0.2s; display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
-  .nav-signout:hover { color: #ff4444; }
+  /* Outside the scrolling tab strip so it is always visible on narrow screens */
+  .nav-signout {
+    flex-shrink: 0;
+    min-height: 48px;
+    padding: 13px 14px 13px 16px;
+    font-family: 'Barlow', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    background: #0a0a0a;
+    border: none;
+    border-left: 1px solid #252525;
+    box-shadow: -10px 0 14px -6px rgba(0,0,0,0.75);
+    color: #a8a8a8;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.2s, background 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .nav-signout:hover { color: #ff6b6b; background: #111; }
+  .nav-signout:focus-visible { outline-offset: -2px; }
 
   .section { padding: 1.5rem; }
   .section-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.8rem; letter-spacing: 1px; text-transform: uppercase; color: #fff; margin-bottom: 2px; }
@@ -265,7 +288,8 @@ const css = `
   .score-line { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px 14px; margin-bottom: 12px; width: 100%; }
   .score-cluster { display: flex; align-items: center; gap: 8px; flex: 1 1 180px; min-width: 0; max-width: 100%; }
   .score-cluster--home { justify-content: flex-end; }
-  .score-cluster--away { justify-content: flex-start; }
+  /* Same DOM order as home (flag → name → input); reverse on wide screens so the score sits toward the centre */
+  .score-cluster--away { justify-content: flex-start; flex-direction: row-reverse; }
   .score-team-inline { display: flex; align-items: center; gap: 6px; min-width: 0; max-width: min(160px, 42vw); }
   .score-inline-name { font-family: 'Barlow', sans-serif; font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.35px; color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .score-input { width: 52px; height: 52px; text-align: center; font-size: 1.6rem; font-weight: 900; font-family: 'Barlow Condensed', sans-serif; background: #000; border: 2px solid #2a2a2a; border-radius: 0; color: ${COLORS.gold}; outline: none; -moz-appearance: textfield; transition: border-color 0.2s, box-shadow 0.2s; flex-shrink: 0; }
@@ -340,7 +364,7 @@ const css = `
   .rule-card h4 { font-size: 0.82rem; font-family: 'Barlow', sans-serif; font-weight: 700; color: #ddd; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
   .rule-card p { font-size: 0.73rem; color: #666; line-height: 1.5; }
 
-  .toast { position: fixed; bottom: 90px; left: 50%; transform: translateX(-50%); background: ${COLORS.gold}; color: #000; font-family: 'Barlow Condensed', sans-serif; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; padding: 12px 28px; border-radius: 0; font-size: 0.9rem; z-index: 999; animation: slideUp 0.3s ease; }
+  .toast { position: fixed; bottom: max(90px, calc(70px + env(safe-area-inset-bottom, 0px))); left: 50%; transform: translateX(-50%); background: ${COLORS.gold}; color: #000; font-family: 'Barlow Condensed', sans-serif; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; padding: 12px 28px; border-radius: 0; font-size: 0.9rem; z-index: 999; animation: slideUp 0.3s ease; }
   @keyframes slideUp { from { opacity: 0; transform: translateX(-50%) translateY(20px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
 
   .tag { display: inline-block; background: rgba(201,168,76,0.1); color: ${COLORS.gold}; border-radius: 0; border: 1px solid rgba(201,168,76,0.3); padding: 2px 8px; font-size: 0.68rem; font-family: 'Barlow', sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -383,7 +407,7 @@ const css = `
   .lb-cat span { color: ${COLORS.gold}; font-weight: 700; }
   .lb-chevron { font-size: 0.65rem; color: #444; transition: transform 0.2s; flex-shrink: 0; }
   .lb-chevron.open { transform: rotate(180deg); }
-  .lb-pred-panel { background: #0c0c0c; border: 1px solid #222; border-top: none; margin: 0 -14px; padding: 14px; margin-bottom: 12px; }
+  .lb-pred-panel { background: #0c0c0c; border: 1px solid #222; border-top: none; margin: 0 -14px; padding: 14px; margin-bottom: 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .lb-pred-panel .group-tabs { margin-bottom: 10px; flex-wrap: wrap; gap: 4px; }
   .lb-pred-panel .group-tab { font-size: 0.68rem; padding: 4px 8px; }
   .pred-table { width: 100%; border-collapse: collapse; font-size: 0.72rem; }
@@ -462,9 +486,10 @@ const css = `
   .lp-hero-big { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 4rem; line-height: 1; color: #fff; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 6px; position: relative; }
   .lp-hero-big em { color: ${COLORS.gold}; font-style: normal; }
   .lp-hero-sub { font-family: 'Noto Sans', sans-serif; font-size: 1.1rem; color: #888; max-width: 520px; margin: 0 auto 24px; line-height: 1.6; position: relative; }
+  .lp-hero-btns { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; }
   .lp-hero-cta { display: inline-flex; align-items: center; gap: 8px; background: ${COLORS.gold}; color: #000; border: none; padding: 16px 36px; font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.15rem; letter-spacing: 2px; text-transform: uppercase; cursor: pointer; transition: all 0.15s; position: relative; text-decoration: none; }
   .lp-hero-cta:hover { background: ${COLORS.goldLight}; transform: scale(1.02); }
-  .lp-hero-ghost { display: inline-flex; align-items: center; gap: 6px; background: transparent; color: ${COLORS.gold}; border: 2px solid rgba(201,168,76,0.4); padding: 14px 28px; font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1rem; letter-spacing: 1px; text-transform: uppercase; cursor: pointer; transition: all 0.15s; text-decoration: none; margin-left: 12px; }
+  .lp-hero-ghost { display: inline-flex; align-items: center; gap: 6px; background: transparent; color: ${COLORS.gold}; border: 2px solid rgba(201,168,76,0.4); padding: 14px 28px; font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1rem; letter-spacing: 1px; text-transform: uppercase; cursor: pointer; transition: all 0.15s; text-decoration: none; }
   .lp-hero-ghost:hover { border-color: ${COLORS.gold}; background: rgba(201,168,76,0.06); }
   .lp-hero-flags { font-size: 2rem; margin-top: 28px; letter-spacing: 4px; position: relative; opacity: 0.7; }
   .lp-hero-divider { height: 3px; background: ${COLORS.gold}; }
@@ -537,6 +562,37 @@ const css = `
   .lp-footer { text-align: center; padding: 2rem 1.5rem; border-top: 1px solid #111; }
   .lp-footer-text { font-size: 0.72rem; color: #333; font-family: 'Noto Sans', sans-serif; }
 
+  /* Match cards: stack teams vertically so each row reads flag → name → score (avoids zig-zag on phones / narrow tablets) */
+  @media (max-width: 640px) {
+    .score-line {
+      flex-direction: column;
+      flex-wrap: nowrap;
+      align-items: stretch;
+      gap: 4px 0;
+    }
+    .score-line .vs {
+      align-self: center;
+      margin: 4px 0;
+      font-size: 0.72rem;
+      letter-spacing: 3px;
+    }
+    .score-cluster--home,
+    .score-cluster--away {
+      flex: none;
+      width: 100%;
+      max-width: none;
+      justify-content: space-between;
+      flex-direction: row;
+    }
+    .score-cluster--home .score-team-inline,
+    .score-cluster--away .score-team-inline {
+      flex: 1;
+      min-width: 0;
+      max-width: none;
+      justify-content: flex-start;
+    }
+  }
+
   /* --- Responsive: tablet --- */
   @media (max-width: 768px) {
     .hero-inner { padding: 1.5rem 1rem 1.2rem; }
@@ -548,6 +604,9 @@ const css = `
     .lp-section { padding: 2.5rem 1.2rem; }
     .lp-hero { padding: 3rem 1.2rem 2.5rem; }
     .lp-scoring { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .lp-cats { grid-template-columns: 1fr; gap: 10px; }
+    .rules-grid { grid-template-columns: 1fr; }
+    .outright-grid { grid-template-columns: 1fr 1fr; }
   }
 
   /* --- Responsive: mobile --- */
@@ -561,8 +620,9 @@ const css = `
     .lp-hero { padding: 2.5rem 1rem 2rem; }
     .lp-hero-big { font-size: 2.4rem; letter-spacing: 1px; }
     .lp-hero-sub { font-size: 0.92rem; }
+    .lp-hero-btns { flex-direction: column; align-items: stretch; gap: 10px; max-width: 340px; margin: 0 auto; }
     .lp-hero-cta { padding: 14px 24px; font-size: 1rem; width: 100%; justify-content: center; }
-    .lp-hero-ghost { padding: 12px 20px; font-size: 0.9rem; width: 100%; justify-content: center; margin-left: 0; margin-top: 10px; }
+    .lp-hero-ghost { padding: 12px 20px; font-size: 0.9rem; width: 100%; justify-content: center; }
     .lp-hero-flags { font-size: 1.5rem; letter-spacing: 2px; }
     .lp-section { padding: 2rem 1rem; }
     .lp-section-title { font-size: 1.6rem; }
@@ -595,9 +655,8 @@ const css = `
 
     .card-header { padding: 8px 10px; flex-wrap: wrap; gap: 6px; }
     .match-row { padding: 12px 10px; }
-    .score-line { gap: 8px 10px; }
     .score-inline-name { font-size: 0.65rem; }
-    .score-team-inline { max-width: min(120px, 38vw); }
+    .score-team-inline { max-width: none; }
     .score-input { width: 48px; height: 48px; font-size: 1.4rem; }
     .scorer-row { flex-direction: column; align-items: stretch; gap: 6px; }
     .scorer-label { text-align: left; }
@@ -630,14 +689,33 @@ const css = `
     .lb-cat { font-size: 0.58rem; padding: 1px 4px; }
     .lb-you { margin: 0 -10px; padding-left: 10px; padding-right: 10px; }
 
-    .signup-card { padding: 1.2rem; }
-    .submit-card { padding: 1.2rem; }
+    /* Prevent iOS auto-zoom: font-size must be ≥ 16px on focusable inputs */
+    .form-input { font-size: 1rem; }
+    .styled-select { font-size: 1rem; }
+
+    .signup-card { padding: 1.2rem; width: 100%; }
+    .submit-card { padding: 1.2rem; width: 100%; }
+    .lp-signup-form { padding: 1.2rem; width: 100%; }
+    .lp-signup-closed { padding: 1.5rem 1.2rem; width: 100%; }
     .entry-fee-box strong { font-size: 1.5rem; }
-    .btn-primary { padding: 16px 20px; font-size: 1rem; }
-    .btn-pay { padding: 16px 20px; font-size: 1rem; }
+    .btn-primary { padding: 16px 20px; font-size: 1rem; min-height: 52px; }
+    .btn-pay { padding: 16px 20px; font-size: 1rem; min-height: 52px; }
+    .btn-secondary { padding: 12px 20px; font-size: 0.95rem; width: 100%; }
+
+    .lp-auth-tab { min-height: 44px; font-size: 0.72rem; }
+    .lp-auth-hint { font-size: 0.75rem; }
 
     .progress-label { font-size: 0.68rem; }
-    .toast { bottom: 80px; font-size: 0.82rem; padding: 10px 20px; max-width: calc(100vw - 32px); text-align: center; }
+    .toast { font-size: 0.82rem; padding: 10px 20px; max-width: calc(100vw - 32px); text-align: center; }
+
+    /* Leaderboard row tightening */
+    .lb-pred-panel { margin: 0 -10px; padding: 12px 10px; }
+    .pred-table { font-size: 0.68rem; }
+    .pred-team { max-width: 80px; }
+    .pred-outrights { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 4px; }
+
+    /* Submit checklist */
+    .submit-check-row { font-size: 0.78rem; padding: 10px 0; gap: 8px; }
   }
 
   /* --- Responsive: small phones --- */
@@ -646,10 +724,6 @@ const css = `
     .hero-weare { font-size: 1rem; }
     .hero-eyebrow { font-size: 0.65rem; letter-spacing: 3px; }
     .section-title { font-size: 1.3rem; }
-    .score-cluster--home, .score-cluster--away { justify-content: center; flex: 1 1 100%; }
-    .vs { width: 100%; text-align: center; order: 2; margin: 4px 0; }
-    .score-cluster--home { order: 1; }
-    .score-cluster--away { order: 3; }
     .score-input { width: 44px; height: 44px; font-size: 1.2rem; }
     .actual-score-val { font-size: 1.5rem; }
     .group-tab { padding: 5px 8px; font-size: 0.72rem; }
@@ -662,9 +736,14 @@ const css = `
     .submit-card { padding: 1rem; }
     .submit-title { font-size: 1.3rem; }
     .lp-hero-big { font-size: 2rem; }
+    .lp-hero-btns { max-width: 100%; }
     .lp-section-title { font-size: 1.4rem; }
     .lp-cta-title { font-size: 1.5rem; }
     .lp-scoring { grid-template-columns: repeat(2, 1fr); }
+    .lp-signup-form { padding: 1rem; }
+    .form-input { font-size: 1rem; padding: 10px 12px; }
+    .lp-steps { grid-template-columns: 1fr; }
+    .lb-pred-panel { margin: 0 -8px; padding: 10px 8px; }
   }
 `;
 
@@ -749,12 +828,17 @@ function SignupScreen({
     if (form.password !== form.password2) return;
     setBusy(true);
     try {
-      await onPasswordSignUp({
+      const result = await onPasswordSignUp({
         name: form.name.trim(),
         email: form.email.trim(),
         username: form.username.trim(),
         password: form.password,
       });
+      // If the account already exists in auth but not in profiles, switch to
+      // the sign-in tab so the user can log in without re-entering their email.
+      if (result?.switchToSignIn) {
+        setAuthTab("signin");
+      }
     } finally {
       setBusy(false);
     }
@@ -809,7 +893,7 @@ function SignupScreen({
             <span className="lp-deadline-count">{countdownLabel}</span>
           </div>
         )}
-        <div>
+        <div className="lp-hero-btns">
           {submissionClosed ? (
             <button type="button" className="lp-hero-cta" style={{ opacity: 0.5, cursor: "not-allowed" }} disabled>
               Submissions closed
@@ -1239,11 +1323,11 @@ function MatchesScreen({ preds, setPreds, results, readOnly }) {
                   vs
                 </span>
                 <div className="score-cluster score-cluster--away">
-                  <ScoreInput value={p.away ?? ""} onChange={(v) => setMatchPred(key, "away", v)} label={`${m.away} goals`} disabled={readOnly} />
                   <span className="score-team-inline">
-                    <span className="score-inline-name">{m.away}</span>
                     <TeamFlag team={m.away} size={24} />
+                    <span className="score-inline-name">{m.away}</span>
                   </span>
+                  <ScoreInput value={p.away ?? ""} onChange={(v) => setMatchPred(key, "away", v)} label={`${m.away} goals`} disabled={readOnly} />
                 </div>
               </div>
               <div className="scorer-row">
@@ -1893,6 +1977,8 @@ export default function App() {
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [deadlineTick, setDeadlineTick] = useState(0);
   const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
+  /** When true, initial auth bootstrap must not call setScreen("signup") — it can race after sign-in and undo navigation. */
+  const suppressAuthBootstrapSignupRef = useRef(false);
 
   useEffect(() => {
     const id = setInterval(() => setDeadlineTick((t) => t + 1), 1000);
@@ -1942,11 +2028,19 @@ export default function App() {
             data: { session },
           } = await supabase.auth.getSession();
           if (session?.user) {
-            const prof = await fetchProfile();
+            let prof = await fetchProfile();
+            if (!prof) {
+              const ensured = await ensureProfileFromAuthSession();
+              if (ensured.ok && ensured.profile) prof = ensured.profile;
+            }
             if (!cancelled && prof) setProfile(prof);
             if (!cancelled && !prof) {
               setNeedsProfileCompletion(true);
-              setScreen("signup");
+              // Do not send the user back to signup if they just signed in while this
+              // slow bootstrap was in flight — that produced a successful token but no redirect.
+              if (!suppressAuthBootstrapSignupRef.current) {
+                setScreen("signup");
+              }
             } else if (!cancelled && prof?.name && prof?.email) {
               setScreen((s) => (s === "signup" ? "matches" : s));
             }
@@ -1958,6 +2052,8 @@ export default function App() {
         }
       } catch (e) {
         console.warn("Load predictions:", e);
+      } finally {
+        if (!cancelled) suppressAuthBootstrapSignupRef.current = false;
       }
     })();
     return () => {
@@ -2023,21 +2119,27 @@ export default function App() {
     if (!supabase) return;
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         setCurrentUserId(session.user.id);
-        const prof = await fetchProfile();
-        setProfile(prof);
+        let prof = await fetchProfile();
         if (!prof) {
-          setNeedsProfileCompletion(true);
-          setScreen("signup");
-        } else {
-          setNeedsProfileCompletion(false);
+          const ensured = await ensureProfileFromAuthSession();
+          if (ensured.ok && ensured.profile) prof = ensured.profile;
         }
+        setProfile(prof);
+        // Only update completion flag — navigation is handled by the explicit
+        // sign-in / sign-up handlers. Forcing setScreen here races with those
+        // handlers and can undo a successful redirect.
+        setNeedsProfileCompletion(!prof?.name || !prof?.email);
       } else {
+        // Session ended (sign-out / expiry) — return to signup screen
         setCurrentUserId(null);
         setProfile(null);
         setNeedsProfileCompletion(false);
+        if (event === "SIGNED_OUT") {
+          setScreen("signup");
+        }
       }
     });
     return () => subscription.unsubscribe();
@@ -2102,14 +2204,24 @@ export default function App() {
       username: form.username,
     });
     if (!r.ok) {
+      if (r.errorCode === "user_already_exists") {
+        showToast(
+          "That email is already registered for sign-in (Supabase auth). Your league profile can be empty — use Sign in and we will create or restore your profile.",
+        );
+        // Signal the SignupScreen to flip to the sign-in tab
+        return { switchToSignIn: true };
+      }
       showToast(r.error);
       return;
     }
     if (r.session) {
+      suppressAuthBootstrapSignupRef.current = true;
       await finalizeEntryAfterAuth(form);
       setNeedsProfileCompletion(false);
     } else {
-      showToast("Check your email to confirm your account, then sign in below.");
+      showToast(
+        "Check your email to confirm your account, then sign in below. Your league profile is created when your account is created (server-side).",
+      );
     }
   };
 
@@ -2119,21 +2231,39 @@ export default function App() {
       showToast(r.error);
       return;
     }
-    const row = await fetchPredictionsRow();
-    if (row?.predictions && typeof row.predictions === "object") {
-      setPreds(row.predictions);
-      persistLocal(row.predictions, "matches");
-    } else {
-      persistLocal(preds, "matches");
-    }
-    const prof = await fetchProfile();
-    if (prof?.name && prof?.email) {
-      setProfile(prof);
-      setNeedsProfileCompletion(false);
-      setScreen("matches");
-    } else {
+    suppressAuthBootstrapSignupRef.current = true;
+    // Navigate immediately so a slow profiles / wc_predictions fetch cannot block the UI
+    setScreen("matches");
+    persistLocal(preds, "matches");
+    try {
+      const row = await fetchPredictionsRow();
+      if (row?.predictions && typeof row.predictions === "object") {
+        setPreds(row.predictions);
+        persistLocal(row.predictions, "matches");
+      }
+      const ensured = await ensureProfileFromAuthSession();
+      if (ensured.ok && ensured.profile) {
+        setProfile(ensured.profile);
+        const incomplete = !ensured.profile.name || !ensured.profile.email;
+        setNeedsProfileCompletion(incomplete);
+        if (ensured.created) {
+          showToast("Your account had no league profile row — we created one from your sign-in email.");
+        } else if (incomplete) {
+          showToast("Signed in — please complete your profile to submit predictions.");
+        }
+      } else {
+        setProfile(null);
+        setNeedsProfileCompletion(true);
+        showToast(
+          ensured.error
+            ? `Signed in — profile could not be saved: ${ensured.error}`
+            : "Signed in — please complete your profile to submit predictions.",
+        );
+      }
+    } catch (e) {
+      console.warn("After sign-in:", e);
       setNeedsProfileCompletion(true);
-      showToast("Add your name and username to continue.");
+      showToast("Signed in — please refresh if your predictions do not appear.");
     }
   };
 
@@ -2215,14 +2345,19 @@ export default function App() {
 
   const handleSignOut = async () => {
     localStorage.removeItem(STORAGE_KEY);
-    if (supabase) await supabase.auth.signOut();
-    setPreds({});
-    setProfile(null);
-    setAllUsers([]);
-    setCurrentUserId(null);
-    setResults(null);
-    setNeedsProfileCompletion(false);
-    setScreen("signup");
+    try {
+      if (supabase) await supabase.auth.signOut();
+    } catch (e) {
+      console.warn("Sign out:", e);
+    } finally {
+      setPreds({});
+      setProfile(null);
+      setAllUsers([]);
+      setCurrentUserId(null);
+      setResults(null);
+      setNeedsProfileCompletion(false);
+      setScreen("signup");
+    }
   };
 
   const handleSave = async () => {
@@ -2267,14 +2402,16 @@ export default function App() {
         )}
 
         {screen !== "signup" && (
-          <nav className="nav" role="tablist" aria-label="Prediction sections">
-            {tabs.map(t => (
-              <button key={t.id} role="tab" aria-selected={screen === t.id} className={`nav-btn${screen === t.id ? " active" : ""}`} onClick={() => setScreen(t.id)}>
-                {t.label}
-              </button>
-            ))}
-            <button className="nav-signout" onClick={handleSignOut} aria-label="Sign out">
-              Sign Out
+          <nav className="nav" aria-label="Prediction sections">
+            <div className="nav-tabs-scroll" role="tablist">
+              {tabs.map(t => (
+                <button key={t.id} type="button" role="tab" aria-selected={screen === t.id} className={`nav-btn${screen === t.id ? " active" : ""}`} onClick={() => setScreen(t.id)}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <button type="button" className="nav-signout" onClick={handleSignOut} aria-label="Sign out">
+              Sign out
             </button>
           </nav>
         )}

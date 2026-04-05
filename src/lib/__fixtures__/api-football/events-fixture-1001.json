@@ -1,0 +1,14 @@
+{
+  "response": [
+    {
+      "detail": "Normal Goal",
+      "team": { "id": 1, "name": "Mexico" },
+      "player": { "name": "Santiago Gimenez" }
+    },
+    {
+      "detail": "Normal Goal",
+      "team": { "id": 1, "name": "Mexico" },
+      "player": { "name": "Hirving Lozano" }
+    }
+  ]
+}

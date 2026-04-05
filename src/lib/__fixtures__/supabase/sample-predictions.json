@@ -1,0 +1,16 @@
+{
+  "Mexico-South Africa": { "home": 2, "away": 0, "scorer": "Mexico|Santiago Giménez" },
+  "South Korea-Czech Republic": { "home": 1, "away": 1 },
+  "England-Croatia": { "home": 2, "away": 0, "scorer": "England|Harry Kane" },
+  "standings_A": ["Mexico", "South Korea", "South Africa", "Czech Republic"],
+  "standings_L": ["England", "Croatia", "Ghana", "Panama"],
+  "winner": "England",
+  "runner_up": "France",
+  "third": "Brazil",
+  "golden_boot": "England|Harry Kane",
+  "golden_glove": "England|Jordan Pickford",
+  "best_young": "England|Jude Bellingham",
+  "top_scoring_team": "Germany",
+  "england_progress": "Winners",
+  "total_goals": 140
+}

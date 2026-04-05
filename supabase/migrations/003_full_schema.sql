@@ -2,6 +2,9 @@
 -- WC Predictions 2026 — Full Database Schema
 -- Run in Supabase SQL Editor (or via supabase db push).
 -- This replaces the earlier single-table approach with a complete schema.
+--
+-- Prerequisite: public.wc_predictions from 001_initial.sql, OR run
+-- 006_wc_predictions_table.sql after this file (the app reads leaderboard JSON from it).
 -- ============================================================================
 
 -- 1. PROFILES ----------------------------------------------------------------

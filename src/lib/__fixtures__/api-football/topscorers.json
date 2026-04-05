@@ -1,0 +1,31 @@
+{
+  "response": [
+    {
+      "player": { "id": 1, "name": "Erling Haaland" },
+      "statistics": [
+        {
+          "team": { "id": 100, "name": "Norway" },
+          "goals": { "total": 7, "assists": 3 }
+        }
+      ]
+    },
+    {
+      "player": { "id": 2, "name": "Harry Kane" },
+      "statistics": [
+        {
+          "team": { "id": 10, "name": "England" },
+          "goals": { "total": 5, "assists": 2 }
+        }
+      ]
+    },
+    {
+      "player": { "id": 3, "name": "Florian Wirtz" },
+      "statistics": [
+        {
+          "team": { "id": 21, "name": "Germany" },
+          "goals": { "total": 5, "assists": 4 }
+        }
+      ]
+    }
+  ]
+}

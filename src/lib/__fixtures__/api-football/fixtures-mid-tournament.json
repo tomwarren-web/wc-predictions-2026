@@ -1,0 +1,56 @@
+{
+  "response": [
+    {
+      "fixture": {
+        "id": 1001,
+        "date": "2026-06-11T22:00:00+00:00",
+        "status": { "short": "FT", "long": "Match Finished", "elapsed": 90 }
+      },
+      "league": { "id": 1, "round": "Group Stage - 1" },
+      "teams": {
+        "home": { "id": 1, "name": "Mexico" },
+        "away": { "id": 2, "name": "South Africa" }
+      },
+      "goals": { "home": 2, "away": 0 }
+    },
+    {
+      "fixture": {
+        "id": 1002,
+        "date": "2026-06-11T22:00:00+00:00",
+        "status": { "short": "1H", "long": "First Half", "elapsed": 34 }
+      },
+      "league": { "id": 1, "round": "Group Stage - 1" },
+      "teams": {
+        "home": { "id": 3, "name": "Korea Republic" },
+        "away": { "id": 4, "name": "Czech Republic" }
+      },
+      "goals": { "home": 1, "away": 0 }
+    },
+    {
+      "fixture": {
+        "id": 1003,
+        "date": "2026-06-17T20:00:00+00:00",
+        "status": { "short": "FT", "long": "Match Finished", "elapsed": 90 }
+      },
+      "league": { "id": 1, "round": "Group Stage - 2" },
+      "teams": {
+        "home": { "id": 10, "name": "England" },
+        "away": { "id": 11, "name": "Croatia" }
+      },
+      "goals": { "home": 2, "away": 1 }
+    },
+    {
+      "fixture": {
+        "id": 1004,
+        "date": "2026-06-27T21:00:00+00:00",
+        "status": { "short": "NS", "long": "Not Started", "elapsed": null }
+      },
+      "league": { "id": 1, "round": "Group Stage - 3" },
+      "teams": {
+        "home": { "id": 10, "name": "England" },
+        "away": { "id": 12, "name": "Panama" }
+      },
+      "goals": { "home": null, "away": null }
+    }
+  ]
+}

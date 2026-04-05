@@ -46,21 +46,43 @@ export async function ensureSupabaseSession() {
   return session ?? null;
 }
 
+/** True when the DB never had migration 001 / 006 (only 003 gives match_predictions, not wc_predictions). */
+function isWcPredictionsMissingError(err) {
+  const m = (err && err.message) || "";
+  return (
+    err?.code === "PGRST205" ||
+    /Could not find the table ['"]public\.wc_predictions['"]/i.test(m) ||
+    (/schema cache/i.test(m) && /wc_predictions/i.test(m))
+  );
+}
+
 // ── Email / password ─────────────────────────────────────────────────────────
+
+/**
+ * Supabase rejects sign-up / password-reset with 422 if `redirect_to` is not allowlisted
+ * (Authentication → URL Configuration → Redirect URLs). Passing `window.location.origin`
+ * (e.g. http://localhost:5173) causes that unless every dev URL is added in the dashboard.
+ *
+ * Omitting redirect uses the project **Site URL** from the same screen for email links.
+ * Set `VITE_AUTH_EMAIL_REDIRECT_URL` when you need an explicit redirect and have added it
+ * to the allowlist (e.g. production URL).
+ */
+function authEmailRedirectUrl() {
+  const v = import.meta.env.VITE_AUTH_EMAIL_REDIRECT_URL;
+  return typeof v === "string" && v.trim() ? v.trim() : undefined;
+}
 
 export async function signUpWithPassword({ email, password, name, username }) {
   if (!supabase) return { ok: false, error: "not_configured" };
-  const emailRedirectTo =
-    typeof window !== "undefined" ? `${window.location.origin}/` : undefined;
+  const emailRedirectTo = authEmailRedirectUrl();
+  const options = { data: { name, username: username || "" } };
+  if (emailRedirectTo) options.emailRedirectTo = emailRedirectTo;
   const { data, error } = await supabase.auth.signUp({
     email,
     password,
-    options: {
-      emailRedirectTo,
-      data: { name, username: username || "" },
-    },
+    options,
   });
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: error.message, errorCode: error.code };
   return { ok: true, session: data.session, user: data.user };
 }
 
@@ -73,11 +95,9 @@ export async function signInWithPassword({ email, password }) {
 
 export async function requestPasswordReset(email) {
   if (!supabase) return { ok: false, error: "not_configured" };
-  const redirectTo =
-    typeof window !== "undefined" ? `${window.location.origin}/` : undefined;
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo,
-  });
+  const redirectTo = authEmailRedirectUrl();
+  const opts = redirectTo ? { redirectTo } : {};
+  const { error } = await supabase.auth.resetPasswordForEmail(email, opts);
   if (error) return { ok: false, error: error.message };
   return { ok: true };
 }
@@ -135,6 +155,34 @@ export async function fetchProfile() {
   return data;
 }
 
+/**
+ * Supabase stores users in auth.users; this app uses public.profiles. Those can get out of sync:
+ * e.g. profile row deleted, or sign-up failed after the auth user was created. Sign-in then works
+ * but fetchProfile is empty. This inserts (or updates) a profile row using the JWT email + metadata.
+ */
+export async function ensureProfileFromAuthSession() {
+  if (!supabase) return { ok: false, error: "not_configured", profile: null, created: false };
+  const session = await ensureSupabaseSession();
+  if (!session?.user?.id) return { ok: false, error: "no_session", profile: null, created: false };
+
+  const existing = await fetchProfile();
+  if (existing) return { ok: true, profile: existing, created: false };
+
+  const u = session.user;
+  const meta = u.user_metadata && typeof u.user_metadata === "object" ? u.user_metadata : {};
+  const email = typeof u.email === "string" ? u.email.trim() : "";
+  const nameFromMeta = typeof meta.name === "string" ? meta.name.trim() : "";
+  const name = nameFromMeta || (email ? email.split("@")[0] : "") || "Player";
+  const usernameFromMeta = typeof meta.username === "string" ? meta.username.trim() : "";
+  const username = usernameFromMeta || `user_${u.id.slice(0, 8)}`;
+
+  const up = await upsertProfile({ name, email, username });
+  if (!up.ok) return { ok: false, error: up.error, profile: null, created: false };
+
+  const profile = await fetchProfile();
+  return { ok: true, profile, created: true };
+}
+
 // ── Legacy predictions (backward compatible) ─────────────────────────────────
 
 export async function fetchPredictionsRow() {
@@ -147,7 +195,7 @@ export async function fetchPredictionsRow() {
     .eq("id", session.user.id)
     .maybeSingle();
   if (error) {
-    console.warn("fetchPredictionsRow:", error.message);
+    if (!isWcPredictionsMissingError(error)) console.warn("fetchPredictionsRow:", error.message);
     return null;
   }
   return data;
@@ -159,7 +207,7 @@ export async function fetchAllPredictions() {
     .from("wc_predictions")
     .select("id, profile, predictions");
   if (error) {
-    console.warn("fetchAllPredictions:", error.message);
+    if (!isWcPredictionsMissingError(error)) console.warn("fetchAllPredictions:", error.message);
     return [];
   }
   return data || [];
@@ -312,24 +360,60 @@ export async function upsertPredictions(predictions, profilePatch) {
   const session = await ensureSupabaseSession();
   if (!session?.user?.id) return { ok: false, error: "no_session" };
 
+  const patch = profilePatch && typeof profilePatch === "object" ? profilePatch : {};
+
+  let prof = await fetchProfile();
+  if (!prof) {
+    const ensured = await ensureProfileFromAuthSession();
+    prof = ensured.profile;
+    if (!prof) {
+      return { ok: false, error: ensured.error || "no_profile — sign in again or complete your profile" };
+    }
+  }
+
+  const profileSnapshot = {
+    name: patch.name ?? prof.name,
+    email: patch.email ?? prof.email,
+    username: patch.username ?? prof.username,
+  };
+
+  let existingProfileJson = {};
+  const sel = await supabase
+    .from("wc_predictions")
+    .select("profile")
+    .eq("id", session.user.id)
+    .maybeSingle();
+
+  if (sel.error) {
+    if (!isWcPredictionsMissingError(sel.error)) return { ok: false, error: sel.error.message };
+  } else if (sel.data?.profile && typeof sel.data.profile === "object") {
+    existingProfileJson = sel.data.profile;
+  }
+
   const row = {
     id: session.user.id,
     predictions,
     updated_at: new Date().toISOString(),
+    profile: { ...existingProfileJson, ...profileSnapshot },
   };
-  if (profilePatch && Object.keys(profilePatch).length) {
-    const { data: existing } = await supabase
-      .from("wc_predictions")
-      .select("profile")
-      .eq("id", session.user.id)
-      .maybeSingle();
-    row.profile = { ...(existing?.profile || {}), ...profilePatch };
-  }
 
-  const { error } = await supabase.from("wc_predictions").upsert(row, {
-    onConflict: "id",
-  });
-  if (error) return { ok: false, error: error.message };
+  if (!sel.error) {
+    const { error: upErr } = await supabase.from("wc_predictions").upsert(row, {
+      onConflict: "id",
+    });
+    if (upErr) {
+      if (!isWcPredictionsMissingError(upErr)) return { ok: false, error: upErr.message };
+      if (import.meta.env.DEV) {
+        console.warn(
+          "[WC Predictions] public.wc_predictions is missing — run supabase/migrations/006_wc_predictions_table.sql in the SQL Editor. Saving normalized tables only.",
+        );
+      }
+    }
+  } else if (import.meta.env.DEV) {
+    console.warn(
+      "[WC Predictions] public.wc_predictions is missing — run supabase/migrations/006_wc_predictions_table.sql. Saving normalized tables only.",
+    );
+  }
 
   const sync = await syncNormalizedPredictions(predictions);
   if (!sync.ok) return { ok: false, error: sync.error || "normalized_sync_failed" };

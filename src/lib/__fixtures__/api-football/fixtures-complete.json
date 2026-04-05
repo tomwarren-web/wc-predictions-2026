@@ -1,0 +1,95 @@
+{
+  "response": [
+    {
+      "fixture": {
+        "id": 1001,
+        "date": "2026-06-11T22:00:00+00:00",
+        "status": { "short": "FT", "long": "Match Finished", "elapsed": 90 }
+      },
+      "league": { "id": 1, "round": "Group Stage - 1" },
+      "teams": {
+        "home": { "id": 1, "name": "Mexico" },
+        "away": { "id": 2, "name": "South Africa" }
+      },
+      "goals": { "home": 3, "away": 1 }
+    },
+    {
+      "fixture": {
+        "id": 1002,
+        "date": "2026-06-11T22:00:00+00:00",
+        "status": { "short": "FT", "long": "Match Finished", "elapsed": 90 }
+      },
+      "league": { "id": 1, "round": "Group Stage - 1" },
+      "teams": {
+        "home": { "id": 3, "name": "Korea Republic" },
+        "away": { "id": 4, "name": "Czech Republic" }
+      },
+      "goals": { "home": 2, "away": 2 }
+    },
+    {
+      "fixture": {
+        "id": 1003,
+        "date": "2026-06-17T20:00:00+00:00",
+        "status": { "short": "FT", "long": "Match Finished", "elapsed": 90 }
+      },
+      "league": { "id": 1, "round": "Group Stage - 2" },
+      "teams": {
+        "home": { "id": 10, "name": "England" },
+        "away": { "id": 11, "name": "Croatia" }
+      },
+      "goals": { "home": 1, "away": 0 }
+    },
+    {
+      "fixture": {
+        "id": 2001,
+        "date": "2026-07-14T00:00:00+00:00",
+        "status": { "short": "FT", "long": "Match Finished", "elapsed": 90 }
+      },
+      "league": { "id": 1, "round": "Semi-finals" },
+      "teams": {
+        "home": { "id": 10, "name": "England" },
+        "away": { "id": 20, "name": "France" }
+      },
+      "goals": { "home": 2, "away": 1 }
+    },
+    {
+      "fixture": {
+        "id": 2002,
+        "date": "2026-07-15T00:00:00+00:00",
+        "status": { "short": "FT", "long": "Match Finished", "elapsed": 90 }
+      },
+      "league": { "id": 1, "round": "Semi-finals" },
+      "teams": {
+        "home": { "id": 21, "name": "Brazil" },
+        "away": { "id": 22, "name": "Germany" }
+      },
+      "goals": { "home": 1, "away": 2 }
+    },
+    {
+      "fixture": {
+        "id": 2003,
+        "date": "2026-07-18T00:00:00+00:00",
+        "status": { "short": "FT", "long": "Match Finished", "elapsed": 90 }
+      },
+      "league": { "id": 1, "round": "3rd Place Final" },
+      "teams": {
+        "home": { "id": 20, "name": "France" },
+        "away": { "id": 21, "name": "Brazil" }
+      },
+      "goals": { "home": 3, "away": 2 }
+    },
+    {
+      "fixture": {
+        "id": 2004,
+        "date": "2026-07-19T00:00:00+00:00",
+        "status": { "short": "FT", "long": "Match Finished", "elapsed": 90 }
+      },
+      "league": { "id": 1, "round": "Final" },
+      "teams": {
+        "home": { "id": 10, "name": "England" },
+        "away": { "id": 22, "name": "Germany" }
+      },
+      "goals": { "home": 2, "away": 1 }
+    }
+  ]
+}

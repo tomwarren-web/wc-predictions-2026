@@ -1,0 +1,45 @@
+[
+  {
+    "id": "user-001",
+    "profile": { "name": "Alice Smith", "username": "alice", "paid": true, "locked": true },
+    "predictions": {
+      "Mexico-South Africa": { "home": 2, "away": 0, "scorer": "Mexico|Santiago Giménez" },
+      "England-Croatia": { "home": 2, "away": 0, "scorer": "England|Harry Kane" },
+      "standings_A": ["Mexico", "South Korea", "South Africa", "Czech Republic"],
+      "winner": "England",
+      "golden_boot": "England|Harry Kane",
+      "total_goals": 140
+    }
+  },
+  {
+    "id": "user-002",
+    "profile": { "name": "Bob Jones", "username": "bobpredicts", "paid": true, "locked": true },
+    "predictions": {
+      "Mexico-South Africa": { "home": 1, "away": 1 },
+      "England-Croatia": { "home": 1, "away": 0 },
+      "standings_A": ["South Korea", "Mexico", "Czech Republic", "South Africa"],
+      "winner": "France",
+      "golden_boot": "France|Kylian Mbappé",
+      "total_goals": 155
+    }
+  },
+  {
+    "id": "user-003",
+    "profile": { "name": "Carol White", "username": "carol_wc", "paid": false, "locked": false },
+    "predictions": {}
+  },
+  {
+    "id": "user-004",
+    "profile": { "name": "Dave Green", "username": "dave26", "paid": true, "locked": true },
+    "predictions": {
+      "Mexico-South Africa": { "home": 3, "away": 0 },
+      "winner": "Brazil",
+      "total_goals": 120
+    }
+  },
+  {
+    "id": "user-005",
+    "profile": null,
+    "predictions": {}
+  }
+]
