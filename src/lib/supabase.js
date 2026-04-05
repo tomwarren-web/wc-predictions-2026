@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, FunctionsFetchError, FunctionsHttpError } from "@supabase/supabase-js";
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -429,12 +429,32 @@ export async function createCheckoutSession() {
 
   const { data, error } = await supabase.functions.invoke("create-checkout", {
     body: { origin: window.location.origin },
+    timeout: 45_000,
   });
 
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    let message = error.message || "Checkout request failed";
+    if (error instanceof FunctionsHttpError && error.context) {
+      try {
+        const ct = error.context.headers.get("content-type") || "";
+        if (ct.includes("application/json")) {
+          const body = await error.context.json();
+          if (body?.error && typeof body.error === "string") message = body.error;
+        }
+      } catch {
+        /* ignore parse errors */
+      }
+    }
+    if (error instanceof FunctionsFetchError) {
+      message = `Could not reach payment service: ${error.message}`;
+    }
+    console.warn("[create-checkout]", message);
+    return { ok: false, error: message };
+  }
+
   if (data?.error) return { ok: false, error: data.error, paid: data.paid };
-  if (data?.url) return { ok: true, url: data.url };
-  return { ok: false, error: "No checkout URL returned" };
+  if (data?.url && typeof data.url === "string") return { ok: true, url: data.url };
+  return { ok: false, error: "No checkout URL returned — is the create-checkout function deployed?" };
 }
 
 export async function checkPaymentStatus() {

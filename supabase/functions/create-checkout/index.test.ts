@@ -56,10 +56,13 @@ async function handleCheckout(
 
   const profile = await deps.getProfile((user as { id: string }).id);
   if (!profile) {
-    return new Response(JSON.stringify({ error: "Profile not found. Please sign up first." }), {
-      status: 400,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ error: "Profile not found. Save your predictions once, then try Pay again." }),
+      {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
+    );
   }
 
   if ((profile as { paid: boolean }).paid) {
@@ -77,8 +80,12 @@ async function handleCheckout(
     await deps.updateProfileCustomerId((user as { id: string }).id, customerId);
   }
 
-  const body = req.body ? await req.json().catch(() => ({})) : {};
-  const origin = (body as { origin?: string }).origin || "http://localhost:5173";
+  const payload = await req.json().catch(() => ({}));
+  const origin =
+    typeof (payload as { origin?: string }).origin === "string" &&
+    (payload as { origin: string }).origin.startsWith("http")
+      ? (payload as { origin: string }).origin
+      : "http://localhost:5173";
 
   const session = await deps.createStripeSession(customerId, origin, (user as { id: string }).id);
   await deps.insertPayment({
@@ -160,7 +167,7 @@ Deno.test("missing profile returns 400 with helpful message", async () => {
   const res = await handleCheckout(makeRequest(), deps);
   assertEquals(res.status, 400);
   const body = await res.json();
-  assertEquals(body.error, "Profile not found. Please sign up first.");
+  assertEquals(body.error, "Profile not found. Save your predictions once, then try Pay again.");
 });
 
 Deno.test("already-paid user returns 400 with paid: true flag", async () => {

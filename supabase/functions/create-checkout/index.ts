@@ -2,10 +2,6 @@ import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@14?target=deno";
 
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
-  apiVersion: "2024-04-10",
-});
-
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -23,6 +19,19 @@ serve(async (req) => {
   }
 
   try {
+    const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
+    if (!stripeKey?.startsWith("sk_")) {
+      return new Response(
+        JSON.stringify({
+          error:
+            "STRIPE_SECRET_KEY is not set on the server. In Supabase: Project Settings → Edge Functions → Secrets.",
+        }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const stripe = new Stripe(stripeKey, { apiVersion: "2024-04-10" });
+
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "No auth header" }), {
@@ -45,15 +54,22 @@ serve(async (req) => {
       });
     }
 
-    const { data: profile } = await supabase
+    const { data: profile, error: profileErr } = await supabase
       .from("profiles")
       .select("email, name, username, paid, stripe_customer_id")
       .eq("id", user.id)
-      .single();
+      .maybeSingle();
+
+    if (profileErr) {
+      return new Response(JSON.stringify({ error: profileErr.message }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     if (!profile) {
       return new Response(
-        JSON.stringify({ error: "Profile not found. Please sign up first." }),
+        JSON.stringify({ error: "Profile not found. Save your predictions once, then try Pay again." }),
         {
           status: 400,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -85,9 +101,11 @@ serve(async (req) => {
         .eq("id", user.id);
     }
 
-    const { origin } = req.body
-      ? await req.json().catch(() => ({}))
-      : {};
+    const payload = await req.json().catch(() => ({}));
+    const origin =
+      typeof payload?.origin === "string" && payload.origin.startsWith("http")
+        ? payload.origin
+        : undefined;
     const appUrl = origin || Deno.env.get("APP_URL") || "http://localhost:5173";
 
     const session = await stripe.checkout.sessions.create({
