@@ -72,8 +72,64 @@ function authEmailRedirectUrl() {
   return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
 
+/**
+ * Turns Supabase Auth API errors into short messages for the signup / sign-in UI.
+ * Keeps technical details out of toasts while still matching common codes and phrases.
+ */
+export function friendlyAuthMessage(rawMessage, code) {
+  const c = code || "";
+  const msg = typeof rawMessage === "string" ? rawMessage.trim() : "";
+  const lower = msg.toLowerCase();
+
+  if (c === "not_configured")
+    return "Online accounts are not set up in this app yet. If this keeps happening, contact the organiser.";
+
+  switch (c) {
+    case "user_already_exists":
+      return "That email already has an account. Use Sign in below (we can restore your league profile if needed).";
+    case "invalid_credentials":
+      return "Wrong email or password. Try again, or use Forgot password.";
+    case "email_not_confirmed":
+      return "Confirm your email first — open the link we sent you, then sign in.";
+    case "weak_password":
+      return "That password is too weak. Use at least 6 characters.";
+    case "signup_disabled":
+      return "New accounts are not open right now. Try again later or contact the organiser.";
+    case "user_banned":
+      return "This account cannot sign in. Contact support if you think this is a mistake.";
+    default:
+      break;
+  }
+
+  if (
+    lower.includes("invalid login credentials") ||
+    lower.includes("invalid credentials") ||
+    (lower.includes("email") && lower.includes("password") && lower.includes("invalid"))
+  ) {
+    return "Wrong email or password. Try again, or use Forgot password.";
+  }
+  if (lower.includes("email not confirmed") || lower.includes("not confirmed")) {
+    return "Confirm your email first — open the link we sent you, then sign in.";
+  }
+  if (lower.includes("already been registered") || lower.includes("user already registered")) {
+    return "That email already has an account. Use Sign in below.";
+  }
+  if (lower.includes("rate limit") || lower.includes("too many requests") || lower.includes("too many")) {
+    return "Too many attempts — wait a minute, then try again.";
+  }
+  if (lower.includes("network") || lower.includes("fetch") || lower.includes("failed to fetch")) {
+    return "Could not reach the server. Check your connection and try again.";
+  }
+  if (lower.includes("422") || lower.includes("redirect") || lower.includes("redirect_uri")) {
+    return "Email link settings need updating on the server — ask the organiser to check Supabase redirect URLs.";
+  }
+
+  if (!msg) return "Something went wrong. Please try again.";
+  return msg;
+}
+
 export async function signUpWithPassword({ email, password, name, username }) {
-  if (!supabase) return { ok: false, error: "not_configured" };
+  if (!supabase) return { ok: false, error: friendlyAuthMessage(null, "not_configured"), errorCode: "not_configured" };
   const emailRedirectTo = authEmailRedirectUrl();
   const options = { data: { name, username: username || "" } };
   if (emailRedirectTo) options.emailRedirectTo = emailRedirectTo;
@@ -82,23 +138,38 @@ export async function signUpWithPassword({ email, password, name, username }) {
     password,
     options,
   });
-  if (error) return { ok: false, error: error.message, errorCode: error.code };
+  if (error)
+    return {
+      ok: false,
+      error: friendlyAuthMessage(error.message, error.code),
+      errorCode: error.code,
+    };
   return { ok: true, session: data.session, user: data.user };
 }
 
 export async function signInWithPassword({ email, password }) {
-  if (!supabase) return { ok: false, error: "not_configured" };
+  if (!supabase) return { ok: false, error: friendlyAuthMessage(null, "not_configured"), errorCode: "not_configured" };
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) return { ok: false, error: error.message };
+  if (error)
+    return {
+      ok: false,
+      error: friendlyAuthMessage(error.message, error.code),
+      errorCode: error.code,
+    };
   return { ok: true, session: data.session };
 }
 
 export async function requestPasswordReset(email) {
-  if (!supabase) return { ok: false, error: "not_configured" };
+  if (!supabase) return { ok: false, error: friendlyAuthMessage(null, "not_configured"), errorCode: "not_configured" };
   const redirectTo = authEmailRedirectUrl();
   const opts = redirectTo ? { redirectTo } : {};
   const { error } = await supabase.auth.resetPasswordForEmail(email, opts);
-  if (error) return { ok: false, error: error.message };
+  if (error)
+    return {
+      ok: false,
+      error: friendlyAuthMessage(error.message, error.code),
+      errorCode: error.code,
+    };
   return { ok: true };
 }
 
@@ -191,7 +262,7 @@ export async function fetchPredictionsRow() {
   if (!session?.user?.id) return null;
   const { data, error } = await supabase
     .from("wc_predictions")
-    .select("predictions, profile")
+    .select("predictions, profile, updated_at")
     .eq("id", session.user.id)
     .maybeSingle();
   if (error) {
@@ -370,10 +441,10 @@ export async function upsertPredictions(predictions, profilePatch) {
       return { ok: false, error: ensured.error || "no_profile — sign in again or complete your profile" };
     }
   }
+  if (prof.locked) return { ok: false, error: "predictions_locked" };
 
   const profileSnapshot = {
     name: patch.name ?? prof.name,
-    email: patch.email ?? prof.email,
     username: patch.username ?? prof.username,
   };
 

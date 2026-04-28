@@ -7,6 +7,7 @@
  * and the no-op paths when Supabase is not configured.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { friendlyAuthMessage } from "../supabase.js";
 
 // ─── Mock @supabase/supabase-js ───────────────────────────────────────────────
 
@@ -97,6 +98,30 @@ const buildSupabaseMock = (overrides = {}) => {
 
   return client;
 };
+
+// ─── friendlyAuthMessage ──────────────────────────────────────────────────────
+
+describe("friendlyAuthMessage", () => {
+  it("maps invalid_credentials", () => {
+    expect(friendlyAuthMessage("Invalid login credentials", "invalid_credentials")).toMatch(/Wrong email or password/i);
+  });
+
+  it("maps user_already_exists", () => {
+    expect(friendlyAuthMessage("User already registered", "user_already_exists")).toMatch(/already has an account/i);
+  });
+
+  it("maps not_configured", () => {
+    expect(friendlyAuthMessage(null, "not_configured")).toMatch(/not set up/i);
+  });
+
+  it("falls back to original message when unrecognised", () => {
+    expect(friendlyAuthMessage("Custom server message", "unknown_code")).toBe("Custom server message");
+  });
+
+  it("handles empty message", () => {
+    expect(friendlyAuthMessage("", undefined)).toMatch(/Something went wrong/i);
+  });
+});
 
 // ─── isLikelyServiceRoleKey ───────────────────────────────────────────────────
 

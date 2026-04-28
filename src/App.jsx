@@ -19,6 +19,7 @@ import {
 import { isApiFootballConfigured, fetchAllResults, hasLiveMatches, getMatchResultForTeams } from "./lib/api-football";
 import { getSubmissionDeadlineMs, getFirstKickoffMs, formatCountdown, formatDeadlineLocal } from "./lib/tournament-deadline";
 import { scorePredictions, scoreMatch } from "./lib/scoring";
+import heroImg from "./assets/hero.png";
 
 const STORAGE_KEY = "wc-predictions-2026";
 const ENTRY_FEE_GBP = 10;
@@ -228,7 +229,8 @@ const css = `
   *:focus-visible { outline: 2px solid ${COLORS.gold}; outline-offset: 2px; }
   input:focus-visible, select:focus-visible { outline-offset: 0; }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
-  .app { max-width: 900px; margin: 0 auto; padding: 0 0 80px; padding-bottom: max(80px, calc(60px + env(safe-area-inset-bottom, 0px))); }
+  .app { width: min(100%, 1120px); margin: 0 auto; padding: 0 0 80px; padding-bottom: max(80px, calc(60px + env(safe-area-inset-bottom, 0px))); }
+  .app-landing { width: 100%; max-width: none; }
 
   .hero { background: #000; padding: 0; border-bottom: 1px solid #222; position: relative; overflow: hidden; }
   .hero-pattern { position: absolute; inset: 0; opacity: 0.04; background-image: repeating-linear-gradient(0deg, transparent, transparent 38px, #fff 38px, #fff 39px), repeating-linear-gradient(90deg, transparent, transparent 38px, #fff 38px, #fff 39px); }
@@ -274,7 +276,7 @@ const css = `
   .nav-signout:hover { color: #ff6b6b; background: #111; }
   .nav-signout:focus-visible { outline-offset: -2px; }
 
-  .section { padding: 1.5rem; }
+  .section { padding: 1.5rem clamp(1rem, 2.5vw, 2rem); }
   .section-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.8rem; letter-spacing: 1px; text-transform: uppercase; color: #fff; margin-bottom: 2px; }
   .section-title-line { width: 36px; height: 3px; background: ${COLORS.gold}; margin-bottom: 10px; }
   .section-sub { font-size: 0.82rem; color: #666; margin-bottom: 1.2rem; font-family: 'Noto Sans', sans-serif; }
@@ -396,7 +398,7 @@ const css = `
   .match-pts-total { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.1rem; color: #4CAF50; letter-spacing: 0.5px; }
   .match-pts-detail { display: block; font-size: 0.7rem; color: #888; margin-top: 3px; font-family: 'Noto Sans', sans-serif; }
 
-  .lb-row { display: flex; align-items: center; gap: 12px; padding: 14px 0; border-bottom: 1px solid #1a1a1a; transition: background 0.15s; }
+  .lb-row { width: 100%; display: flex; align-items: center; gap: 12px; padding: 14px 0; border: none; border-bottom: 1px solid #1a1a1a; background: transparent; color: inherit; text-align: left; font: inherit; transition: background 0.15s; }
   .lb-row:last-child { border-bottom: none; }
   .lb-row.clickable { cursor: pointer; }
   .lb-row.clickable:hover { background: rgba(201,168,76,0.04); }
@@ -429,6 +431,7 @@ const css = `
 
   .card { background: #0d0d0d; border: 1px solid #1e1e1e; overflow: hidden; margin-bottom: 12px; transition: border-color 0.2s; }
   .card:hover { border-color: #2a2a2a; }
+  .matches-grid { display: grid; gap: 12px; }
 
   .submit-card { background: #0d0d0d; border: 1px solid #1e1e1e; padding: 1.5rem; max-width: 520px; margin: 0 auto; }
   .submit-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.6rem; letter-spacing: 1px; text-transform: uppercase; color: #fff; margin-bottom: 8px; }
@@ -480,12 +483,15 @@ const css = `
 
   /* --- Landing page --- */
   .lp { overflow-x: hidden; }
-  .lp-hero { position: relative; padding: 4rem 1.5rem 3rem; text-align: center; overflow: hidden; }
-  .lp-hero::before { content: ''; position: absolute; inset: 0; opacity: 0.03; background-image: repeating-linear-gradient(0deg, transparent, transparent 38px, #fff 38px, #fff 39px), repeating-linear-gradient(90deg, transparent, transparent 38px, #fff 38px, #fff 39px); pointer-events: none; }
-  .lp-hero-eyebrow { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 0.72rem; letter-spacing: 5px; text-transform: uppercase; color: #555; margin-bottom: 12px; position: relative; }
-  .lp-hero-big { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 4rem; line-height: 1; color: #fff; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 6px; position: relative; }
+  .lp-hero { position: relative; min-height: clamp(560px, 72vh, 760px); padding: 4.5rem 1.5rem 3rem; text-align: center; overflow: hidden; display: flex; align-items: center; justify-content: center; background-image: linear-gradient(180deg, rgba(0,0,0,0.52) 0%, rgba(0,0,0,0.78) 58%, #000 100%), url("${heroImg}"); background-size: cover; background-position: center; }
+  .lp-hero::before { content: ''; position: absolute; inset: 0; opacity: 0.08; background-image: repeating-linear-gradient(0deg, transparent, transparent 38px, #fff 38px, #fff 39px), repeating-linear-gradient(90deg, transparent, transparent 38px, #fff 38px, #fff 39px); pointer-events: none; }
+  .lp-hero-content { position: relative; width: min(720px, 100%); margin: 0 auto; }
+  .lp-hero-eyebrow { font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 0.72rem; letter-spacing: 5px; text-transform: uppercase; color: rgba(255,255,255,0.72); margin-bottom: 12px; position: relative; }
+  .lp-hero-big { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: clamp(3.2rem, 6.2vw, 5.8rem); line-height: 0.95; color: #fff; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 14px; position: relative; text-shadow: 0 2px 24px rgba(0,0,0,0.55); }
   .lp-hero-big em { color: ${COLORS.gold}; font-style: normal; }
-  .lp-hero-sub { font-family: 'Noto Sans', sans-serif; font-size: 1.1rem; color: #888; max-width: 520px; margin: 0 auto 24px; line-height: 1.6; position: relative; }
+  .lp-hero-sub { font-family: 'Noto Sans', sans-serif; font-size: 1.08rem; color: rgba(255,255,255,0.82); max-width: 620px; margin: 0 auto 20px; line-height: 1.65; position: relative; }
+  .lp-hero-points { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; margin: 0 auto 24px; max-width: 680px; }
+  .lp-hero-point { font-family: 'Barlow', sans-serif; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.8px; text-transform: uppercase; color: #ddd; border: 1px solid rgba(255,255,255,0.18); background: rgba(0,0,0,0.42); padding: 7px 11px; }
   .lp-hero-btns { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; }
   .lp-hero-cta { display: inline-flex; align-items: center; gap: 8px; background: ${COLORS.gold}; color: #000; border: none; padding: 16px 36px; font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.15rem; letter-spacing: 2px; text-transform: uppercase; cursor: pointer; transition: all 0.15s; position: relative; text-decoration: none; }
   .lp-hero-cta:hover { background: ${COLORS.goldLight}; transform: scale(1.02); }
@@ -494,12 +500,18 @@ const css = `
   .lp-hero-flags { font-size: 2rem; margin-top: 28px; letter-spacing: 4px; position: relative; opacity: 0.7; }
   .lp-hero-divider { height: 3px; background: ${COLORS.gold}; }
 
-  .lp-section { padding: 3rem 1.5rem; max-width: 800px; margin: 0 auto; }
+  .lp-section { padding: clamp(3rem, 5vw, 5rem) clamp(1.25rem, 4vw, 2.5rem); max-width: 1100px; margin: 0 auto; }
   .lp-section-alt { background: #060608; }
   .lp-section-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 2.2rem; letter-spacing: 1px; text-transform: uppercase; color: #fff; text-align: center; margin-bottom: 4px; }
   .lp-section-title em { color: ${COLORS.gold}; font-style: normal; }
   .lp-section-line { width: 40px; height: 3px; background: ${COLORS.gold}; margin: 0 auto 12px; }
-  .lp-section-sub { text-align: center; font-size: 0.9rem; color: #666; margin-bottom: 2.5rem; max-width: 500px; margin-left: auto; margin-right: auto; line-height: 1.6; }
+  .lp-section-sub { text-align: center; font-size: 0.92rem; color: #666; margin-bottom: 2.5rem; max-width: 620px; margin-left: auto; margin-right: auto; line-height: 1.6; }
+
+  .lp-intro-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .lp-intro-card { background: #0a0a0a; border: 1px solid #1e1e1e; padding: 20px; }
+  .lp-intro-kicker { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.8rem; color: ${COLORS.gold}; line-height: 1; margin-bottom: 10px; }
+  .lp-intro-title { font-family: 'Barlow', sans-serif; font-weight: 800; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.8px; color: #f4f4f4; margin-bottom: 6px; }
+  .lp-intro-copy { font-size: 0.8rem; color: #777; line-height: 1.55; }
 
   .lp-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 2rem; }
   .lp-step { text-align: center; padding: 20px 12px; position: relative; }
@@ -509,7 +521,7 @@ const css = `
   .lp-step-desc { font-size: 0.75rem; color: #555; line-height: 1.5; }
   .lp-step-arrow { position: absolute; right: -14px; top: 50%; color: #2a2a2a; font-size: 1.2rem; font-family: 'Barlow Condensed', sans-serif; font-weight: 900; }
 
-  .lp-cats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .lp-cats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
   .lp-cat { background: #0a0a0a; border: 1px solid #1e1e1e; padding: 20px; transition: border-color 0.2s; }
   .lp-cat:hover { border-color: rgba(201,168,76,0.3); }
   .lp-cat-icon { font-size: 1.8rem; margin-bottom: 8px; }
@@ -523,6 +535,12 @@ const css = `
   .lp-score-pts small { font-size: 0.9rem; font-weight: 700; color: #666; }
   .lp-score-label { font-family: 'Barlow', sans-serif; font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.5px; color: #888; margin-top: 4px; }
 
+  .lp-rules-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .lp-rule-line { display: flex; gap: 12px; align-items: flex-start; background: #0a0a0a; border: 1px solid #1e1e1e; padding: 14px; }
+  .lp-rule-num { width: 28px; height: 28px; display: grid; place-items: center; flex: 0 0 28px; background: rgba(201,168,76,0.1); border: 1px solid rgba(201,168,76,0.25); color: ${COLORS.gold}; font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1rem; }
+  .lp-rule-copy strong { display: block; font-family: 'Barlow', sans-serif; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; font-size: 0.78rem; color: #ddd; margin-bottom: 4px; }
+  .lp-rule-copy span { display: block; font-size: 0.76rem; color: #666; line-height: 1.5; }
+
   .lp-prizes { max-width: 440px; margin: 0 auto; }
   .lp-prize-total { text-align: center; margin-bottom: 20px; }
   .lp-prize-total-label { font-family: 'Barlow', sans-serif; font-weight: 700; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 2px; color: #555; }
@@ -535,13 +553,13 @@ const css = `
 
   .lp-faq { max-width: 600px; margin: 0 auto; }
   .lp-faq-item { border-bottom: 1px solid #1a1a1a; }
-  .lp-faq-q { padding: 16px 0; font-family: 'Barlow', sans-serif; font-weight: 700; font-size: 0.95rem; color: #ddd; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+  .lp-faq-q { width: 100%; padding: 16px 0; border: none; background: transparent; text-align: left; font-family: 'Barlow', sans-serif; font-weight: 700; font-size: 0.95rem; color: #ddd; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
   .lp-faq-q:hover { color: ${COLORS.gold}; }
   .lp-faq-toggle { font-family: 'Barlow Condensed', sans-serif; font-size: 1.3rem; color: #444; transition: transform 0.2s; flex-shrink: 0; }
   .lp-faq-toggle.open { transform: rotate(45deg); color: ${COLORS.gold}; }
   .lp-faq-a { padding: 0 0 16px; font-size: 0.85rem; color: #666; line-height: 1.65; }
 
-  .lp-cta-section { padding: 3rem 1.5rem; text-align: center; background: linear-gradient(180deg, #060608 0%, #0a0a0a 50%, rgba(201,168,76,0.03) 100%); }
+  .lp-cta-section { padding: clamp(3rem, 5vw, 5rem) 1.5rem; text-align: center; background: linear-gradient(180deg, #060608 0%, #0a0a0a 50%, rgba(201,168,76,0.03) 100%); }
   .lp-cta-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 2.4rem; text-transform: uppercase; letter-spacing: 1px; color: #fff; margin-bottom: 8px; }
   .lp-cta-title em { color: ${COLORS.gold}; font-style: normal; }
   .lp-cta-sub { font-size: 0.9rem; color: #666; margin-bottom: 2rem; }
@@ -551,6 +569,7 @@ const css = `
   .lp-auth-tab { flex: 1; padding: 10px 6px; font-family: 'Barlow', sans-serif; font-size: 0.68rem; font-weight: 600; letter-spacing: 0.4px; text-transform: uppercase; background: none; border: none; color: #555; cursor: pointer; border-bottom: 2px solid transparent; transition: color 0.2s; }
   .lp-auth-tab:hover { color: #aaa; }
   .lp-auth-tab.active { color: ${COLORS.gold}; border-bottom-color: ${COLORS.gold}; }
+  .lp-auth-error { border: 1px solid rgba(229,115,115,0.35); background: rgba(229,115,115,0.08); color: #ef9a9a; font-size: 0.74rem; line-height: 1.45; padding: 9px 10px; margin: 0 0 12px; font-family: 'Noto Sans', sans-serif; }
   .lp-auth-hint { font-size: 0.72rem; color: #666; margin-top: 6px; line-height: 1.45; font-family: 'Noto Sans', sans-serif; }
   .lp-auth-link { background: none; border: none; color: #888; font-size: 0.72rem; cursor: pointer; text-decoration: underline; margin-top: 10px; padding: 0; font-family: inherit; display: inline; }
   .lp-auth-link:hover { color: ${COLORS.gold}; }
@@ -561,6 +580,20 @@ const css = `
 
   .lp-footer { text-align: center; padding: 2rem 1.5rem; border-top: 1px solid #111; }
   .lp-footer-text { font-size: 0.72rem; color: #333; font-family: 'Noto Sans', sans-serif; }
+
+  /* --- Responsive: wide screens --- */
+  @media (min-width: 960px) {
+    .hero-inner { padding: 2.4rem 2rem 1.7rem; }
+    .nav { border-left: 1px solid #1e1e1e; border-right: 1px solid #1e1e1e; }
+    .matches-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+    .matches-grid .card { margin-bottom: 0; }
+    .matches-grid .score-line { gap: 8px 10px; }
+    .matches-grid .score-team-inline { max-width: 132px; }
+    .matches-grid .score-input { width: 48px; height: 48px; }
+    .rules-grid { grid-template-columns: repeat(3, 1fr); }
+    .submit-card { max-width: 620px; }
+    .lp-signup-form, .lp-signup-closed { max-width: 480px; }
+  }
 
   /* Match cards: stack teams vertically so each row reads flag → name → score (avoids zig-zag on phones / narrow tablets) */
   @media (max-width: 640px) {
@@ -595,6 +628,7 @@ const css = `
 
   /* --- Responsive: tablet --- */
   @media (max-width: 768px) {
+    .app { width: 100%; }
     .hero-inner { padding: 1.5rem 1rem 1.2rem; }
     .section { padding: 1.2rem; }
     .outright-grid { gap: 8px; }
@@ -602,8 +636,10 @@ const css = `
     .lp-steps { grid-template-columns: repeat(2, 1fr); gap: 12px; }
     .lp-step-arrow { display: none; }
     .lp-section { padding: 2.5rem 1.2rem; }
-    .lp-hero { padding: 3rem 1.2rem 2.5rem; }
+    .lp-hero { min-height: 520px; padding: 3rem 1.2rem 2.5rem; }
     .lp-scoring { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .lp-intro-grid { grid-template-columns: 1fr; }
+    .lp-rules-list { grid-template-columns: 1fr; }
     .lp-cats { grid-template-columns: 1fr; gap: 10px; }
     .rules-grid { grid-template-columns: 1fr; }
     .outright-grid { grid-template-columns: 1fr 1fr; }
@@ -617,9 +653,11 @@ const css = `
     .hero-tag { font-size: 0.65rem; padding: 3px 8px; }
     .hero-inner { padding: 1.2rem 0.8rem 1rem; }
 
-    .lp-hero { padding: 2.5rem 1rem 2rem; }
+    .lp-hero { min-height: 500px; padding: 2.5rem 1rem 2rem; background-position: center top; }
     .lp-hero-big { font-size: 2.4rem; letter-spacing: 1px; }
     .lp-hero-sub { font-size: 0.92rem; }
+    .lp-hero-points { margin-bottom: 18px; }
+    .lp-hero-point { width: 100%; }
     .lp-hero-btns { flex-direction: column; align-items: stretch; gap: 10px; max-width: 340px; margin: 0 auto; }
     .lp-hero-cta { padding: 14px 24px; font-size: 1rem; width: 100%; justify-content: center; }
     .lp-hero-ghost { padding: 12px 20px; font-size: 0.9rem; width: 100%; justify-content: center; }
@@ -634,7 +672,9 @@ const css = `
     .lp-step-label { font-size: 0.75rem; }
     .lp-step-desc { font-size: 0.7rem; }
     .lp-cats { grid-template-columns: 1fr; gap: 10px; }
-    .lp-scoring { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+    .lp-intro-card { padding: 16px; }
+    .lp-rules-list { grid-template-columns: 1fr; }
+    .lp-scoring { grid-template-columns: repeat(2, 1fr); gap: 8px; }
     .lp-score-card { padding: 12px 6px; }
     .lp-score-pts { font-size: 1.8rem; }
     .lp-score-label { font-size: 0.65rem; }
@@ -642,16 +682,18 @@ const css = `
     .lp-cta-section { padding: 2rem 1rem; }
     .lp-cta-title { font-size: 1.8rem; }
     .lp-signup-form { padding: 1.2rem; }
-    .lp-trust { gap: 16px; }
+    .lp-trust { gap: 12px; }
+    .lp-trust-item { flex: 1 1 calc(50% - 12px); justify-content: center; }
 
     .section { padding: 1rem 0.75rem; }
     .section-title { font-size: 1.5rem; }
     .section-sub { font-size: 0.78rem; }
 
     .nav-btn { padding: 12px 14px; font-size: 0.78rem; letter-spacing: 0.5px; }
+    .nav-signout { padding: 12px 10px; font-size: 0.68rem; }
 
     .group-tabs { gap: 4px; }
-    .group-tab { padding: 6px 10px; font-size: 0.78rem; min-height: 36px; }
+    .group-tab { flex: 1 1 calc(25% - 4px); padding: 6px 8px; font-size: 0.78rem; min-height: 40px; text-align: center; }
 
     .card-header { padding: 8px 10px; flex-wrap: wrap; gap: 6px; }
     .match-row { padding: 12px 10px; }
@@ -668,7 +710,7 @@ const css = `
 
     .standings-grid { flex-wrap: wrap; gap: 6px; }
     .standing-slot { flex: 1 1 calc(50% - 3px); min-width: calc(50% - 3px); min-height: 68px; }
-    .drag-team { padding: 6px 10px; font-size: 0.7rem; }
+    .drag-team { flex: 1 1 calc(50% - 6px); justify-content: flex-start; min-height: 38px; padding: 6px 10px; font-size: 0.7rem; }
     .drag-team-pool { gap: 6px; }
 
     .outright-grid { grid-template-columns: 1fr; }
@@ -739,7 +781,9 @@ const css = `
     .lp-hero-btns { max-width: 100%; }
     .lp-section-title { font-size: 1.4rem; }
     .lp-cta-title { font-size: 1.5rem; }
-    .lp-scoring { grid-template-columns: repeat(2, 1fr); }
+    .lp-scoring { grid-template-columns: 1fr; }
+    .lp-hero { min-height: 480px; }
+    .lp-hero-point { font-size: 0.68rem; }
     .lp-signup-form { padding: 1rem; }
     .form-input { font-size: 1rem; padding: 10px 12px; }
     .lp-steps { grid-template-columns: 1fr; }
@@ -786,10 +830,10 @@ function FaqItem({ q, a }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="lp-faq-item">
-      <div className="lp-faq-q" onClick={() => setOpen(o => !o)}>
+      <button type="button" className="lp-faq-q" aria-expanded={open} onClick={() => setOpen(o => !o)}>
         <span>{q}</span>
-        <span className={`lp-faq-toggle${open ? " open" : ""}`}>+</span>
-      </div>
+        <span className={`lp-faq-toggle${open ? " open" : ""}`} aria-hidden="true">+</span>
+      </button>
       {open && <div className="lp-faq-a">{a}</div>}
     </div>
   );
@@ -816,16 +860,24 @@ function SignupScreen({
     password2: "",
   });
   const [busy, setBusy] = useState(false);
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const [formError, setFormError] = useState("");
+  const set = (k, v) => {
+    setFormError("");
+    setForm((f) => ({ ...f, [k]: v }));
+  };
+  const validEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
   const scrollToSignup = () => {
     document.getElementById("lp-signup")?.scrollIntoView({ behavior: "smooth" });
   };
 
   const handleSignUp = async () => {
-    if (!form.name?.trim() || !form.email?.trim()) return;
-    if (!form.password || form.password.length < 6) return;
-    if (form.password !== form.password2) return;
+    setFormError("");
+    if (!form.name?.trim()) return setFormError("Enter your full name to create your account.");
+    if (!form.email?.trim()) return setFormError("Enter your email address.");
+    if (!validEmail(form.email.trim())) return setFormError("Enter a valid email address.");
+    if (!form.password || form.password.length < 6) return setFormError("Use a password with at least 6 characters.");
+    if (form.password !== form.password2) return setFormError("The two passwords do not match.");
     setBusy(true);
     try {
       const result = await onPasswordSignUp({
@@ -845,7 +897,10 @@ function SignupScreen({
   };
 
   const handleSignIn = async () => {
-    if (!form.email?.trim() || !form.password) return;
+    setFormError("");
+    if (!form.email?.trim()) return setFormError("Enter your email address.");
+    if (!validEmail(form.email.trim())) return setFormError("Enter a valid email address.");
+    if (!form.password) return setFormError("Enter your password.");
     setBusy(true);
     try {
       await onPasswordSignIn(form.email.trim(), form.password);
@@ -855,7 +910,9 @@ function SignupScreen({
   };
 
   const handleForgot = async () => {
-    if (!form.email?.trim()) return;
+    setFormError("");
+    if (!form.email?.trim()) return setFormError("Enter your email address first, then use Forgot password.");
+    if (!validEmail(form.email.trim())) return setFormError("Enter a valid email address first, then use Forgot password.");
     setBusy(true);
     try {
       await onForgotPassword(form.email.trim());
@@ -878,37 +935,70 @@ function SignupScreen({
     <div className="lp">
       {/* ── HERO ─────────────────────────────────────────────────── */}
       <div className="lp-hero">
-        <div className="lp-hero-eyebrow">FIFA World Cup 2026 — USA · Canada · Mexico</div>
-        <div className="lp-hero-big">
-          Predict. <em>Compete.</em> Win.
-        </div>
-        <div className="lp-hero-sub">
-          {submissionClosed
-            ? "Submissions for this pool are closed. The entry deadline was one hour before the first match."
-            : "Think you know football? Put your predictions to the test across all 48 group stage matches, pick the outright winners, and compete for a real cash prize pool."}
-        </div>
-        {!submissionClosed && countdownLabel && (
-          <div className="lp-deadline-bar">
-            <span>Entries close <strong>{deadlineLabel}</strong> — one hour before kick-off ({firstKickoffLabel}).</span>
-            <span className="lp-deadline-count">{countdownLabel}</span>
+        <div className="lp-hero-content">
+          <div className="lp-hero-eyebrow">World Cup 2026 prediction competition</div>
+          <div className="lp-hero-big">
+            Back your football brain. <em>Beat the table.</em>
           </div>
-        )}
-        <div className="lp-hero-btns">
-          {submissionClosed ? (
-            <button type="button" className="lp-hero-cta" style={{ opacity: 0.5, cursor: "not-allowed" }} disabled>
-              Submissions closed
-            </button>
-          ) : (
-            <button type="button" className="lp-hero-cta" onClick={scrollToSignup}>
-              Enter Now — £10
-            </button>
+          <div className="lp-hero-sub">
+            {submissionClosed
+              ? "Submissions for this pool are closed. The entry deadline was one hour before the first match."
+              : "Enter the World Cup 2026 prediction league, call the scores, pick the big tournament outcomes, and follow the live leaderboard as every match moves the prize race."}
+          </div>
+          <div className="lp-hero-points" aria-label="Competition highlights">
+            <span className="lp-hero-point">£10 entry</span>
+            <span className="lp-hero-point">48 group match predictions</span>
+            <span className="lp-hero-point">Cash prize pool</span>
+            <span className="lp-hero-point">Live scoring</span>
+          </div>
+          {!submissionClosed && countdownLabel && (
+            <div className="lp-deadline-bar">
+              <span>Entries close <strong>{deadlineLabel}</strong> — one hour before kick-off ({firstKickoffLabel}).</span>
+              <span className="lp-deadline-count">{countdownLabel}</span>
+            </div>
           )}
-          <button type="button" className="lp-hero-ghost" onClick={() => document.getElementById("lp-how")?.scrollIntoView({ behavior: "smooth" })}>
-            How It Works ↓
-          </button>
+          <div className="lp-hero-btns">
+            {submissionClosed ? (
+              <button type="button" className="lp-hero-cta" style={{ opacity: 0.5, cursor: "not-allowed" }} disabled>
+                Submissions closed
+              </button>
+            ) : (
+              <button type="button" className="lp-hero-cta" onClick={scrollToSignup}>
+                Enter the Competition — £10
+              </button>
+            )}
+            <button type="button" className="lp-hero-ghost" onClick={() => document.getElementById("lp-rules")?.scrollIntoView({ behavior: "smooth" })}>
+              See the Rules ↓
+            </button>
+          </div>
         </div>
       </div>
       <div className="lp-hero-divider" />
+
+      <div className="lp-section">
+        <div className="lp-section-title">A World Cup Pool With <em>Proper Stakes</em></div>
+        <div className="lp-section-line" />
+        <div className="lp-section-sub">
+          This is a paid prediction competition built for the full 2026 tournament: simple to enter, satisfying to follow, and decided by the quality of your calls.
+        </div>
+        <div className="lp-intro-grid">
+          <div className="lp-intro-card">
+            <div className="lp-intro-kicker">48</div>
+            <div className="lp-intro-title">Group games to call</div>
+            <div className="lp-intro-copy">Predict every group-stage score and add anytime scorers for extra points.</div>
+          </div>
+          <div className="lp-intro-card">
+            <div className="lp-intro-kicker">12</div>
+            <div className="lp-intro-title">Groups to rank</div>
+            <div className="lp-intro-copy">Pick who tops each group and who sneaks through in second place.</div>
+          </div>
+          <div className="lp-intro-card">
+            <div className="lp-intro-kicker">£</div>
+            <div className="lp-intro-title">Prize pool to chase</div>
+            <div className="lp-intro-copy">Every paid entry grows the pot, with prizes for the top finishers and Golden Boot call.</div>
+          </div>
+        </div>
+      </div>
 
       {/* ── HOW IT WORKS ─────────────────────────────────────────── */}
       <div id="lp-how" className="lp-section-alt">
@@ -916,7 +1006,7 @@ function SignupScreen({
           <div className="lp-section-title">How It <em>Works</em></div>
           <div className="lp-section-line" />
           <div className="lp-section-sub">
-            Four simple steps from signup to prize day. No complicated rules, no fantasy squads — just pure prediction skill.
+            Four simple steps from signup to prize day. No complicated fantasy squads: just make your calls, lock them in, and see where you land.
           </div>
           <div className="lp-steps">
             <div className="lp-step">
@@ -945,6 +1035,44 @@ function SignupScreen({
               <div className="lp-step-icon">🏆</div>
               <div className="lp-step-label">Win</div>
               <div className="lp-step-desc">Track the live leaderboard and claim your prize</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="lp-rules" className="lp-section">
+        <div className="lp-section-title">Rules At A <em>Glance</em></div>
+        <div className="lp-section-line" />
+        <div className="lp-section-sub">
+          The full scoring is transparent, but the competition itself is easy to understand.
+        </div>
+        <div className="lp-rules-list">
+          <div className="lp-rule-line">
+            <div className="lp-rule-num">1</div>
+            <div className="lp-rule-copy">
+              <strong>Complete your predictions</strong>
+              <span>Match scores, group standings, outrights, scorers, and tournament totals all count.</span>
+            </div>
+          </div>
+          <div className="lp-rule-line">
+            <div className="lp-rule-num">2</div>
+            <div className="lp-rule-copy">
+              <strong>Pay to lock your entry</strong>
+              <span>The £10 entry fee confirms your place and locks your predictions.</span>
+            </div>
+          </div>
+          <div className="lp-rule-line">
+            <div className="lp-rule-num">3</div>
+            <div className="lp-rule-copy">
+              <strong>Beat the deadline</strong>
+              <span>Entries close one hour before the first match. Paid entries cannot be edited after lock-in.</span>
+            </div>
+          </div>
+          <div className="lp-rule-line">
+            <div className="lp-rule-num">4</div>
+            <div className="lp-rule-copy">
+              <strong>Most points wins</strong>
+              <span>The leaderboard updates as results come in, with total tournament goals used as the tiebreaker.</span>
             </div>
           </div>
         </div>
@@ -1163,13 +1291,18 @@ function SignupScreen({
         ) : (
           <div className="lp-signup-form">
             <div className="lp-auth-tabs" role="tablist" aria-label="Sign up options">
-              <button type="button" role="tab" aria-selected={authTab === "signup"} className={`lp-auth-tab${authTab === "signup" ? " active" : ""}`} onClick={() => setAuthTab("signup")}>
+              <button type="button" role="tab" aria-selected={authTab === "signup"} className={`lp-auth-tab${authTab === "signup" ? " active" : ""}`} onClick={() => { setFormError(""); setAuthTab("signup"); }}>
                 Create account
               </button>
-              <button type="button" role="tab" aria-selected={authTab === "signin"} className={`lp-auth-tab${authTab === "signin" ? " active" : ""}`} onClick={() => setAuthTab("signin")}>
+              <button type="button" role="tab" aria-selected={authTab === "signin"} className={`lp-auth-tab${authTab === "signin" ? " active" : ""}`} onClick={() => { setFormError(""); setAuthTab("signin"); }}>
                 Sign in
               </button>
             </div>
+            {formError && (
+              <div className="lp-auth-error" role="alert">
+                {formError}
+              </div>
+            )}
 
             {authTab === "signup" && (
               <>
@@ -1197,14 +1330,7 @@ function SignupScreen({
                   type="button"
                   className="btn-primary"
                   style={{ marginTop: 8 }}
-                  disabled={
-                    busy ||
-                    !form.name?.trim() ||
-                    !form.email?.trim() ||
-                    !form.password ||
-                    form.password.length < 6 ||
-                    form.password !== form.password2
-                  }
+                  disabled={busy}
                   onClick={handleSignUp}
                 >
                   {busy ? "Creating account…" : "Create account & start predicting →"}
@@ -1223,7 +1349,7 @@ function SignupScreen({
                   <label>Password</label>
                   <input className="form-input" type="password" placeholder="Your password" value={form.password} onChange={(e) => set("password", e.target.value)} aria-label="Password" autoComplete="current-password" />
                 </div>
-                <button type="button" className="btn-primary" style={{ marginTop: 8 }} disabled={busy || !form.email?.trim() || !form.password} onClick={handleSignIn}>
+                <button type="button" className="btn-primary" style={{ marginTop: 8 }} disabled={busy} onClick={handleSignIn}>
                   {busy ? "Signing in…" : "Sign in →"}
                 </button>
                 <button type="button" className="lp-auth-link" onClick={handleForgot}>
@@ -1286,104 +1412,106 @@ function MatchesScreen({ preds, setPreds, results, readOnly }) {
           </button>
         ))}
       </div>
-      {matches.map(m => {
-        const key = `${m.home}-${m.away}`;
-        const p = preds[key] || {};
-        const result = getMatchResultForTeams(results?.matches, m.home, m.away);
-        const hasScore = result && result.homeGoals != null && result.awayGoals != null;
-        const canScore = result && (result.isFinished || result.isLive) && hasScore;
-        const matchPts = canScore ? scoreMatch(p, result) : null;
-        return (
-          <div key={key} className="card">
-            <div className="card-header">
-              <span className="group-badge">Group {m.group}</span>
-              <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
-                {result?.isLive && <span className="live-badge">● LIVE {result.minute}'</span>}
-                {result?.isFinished && <span className="ft-badge">{result.status}</span>}
-                {p.home !== undefined && p.away !== undefined && p.home !== "" && p.away !== "" && (
-                  <span className="completion-badge">✓ Predicted</span>
-                )}
-                {canScore && (
-                  <span className={`match-pts-pill${matchPts.points === 0 ? " muted" : ""}`} title="Points from this fixture">
-                    +{matchPts.points}
-                  </span>
-                )}
-              </div>
-            </div>
-            <div className="match-row">
-              <div className="score-line" role="group" aria-label={`Score prediction for ${m.home} vs ${m.away}`}>
-                <div className="score-cluster score-cluster--home">
-                  <span className="score-team-inline">
-                    <TeamFlag team={m.home} size={24} />
-                    <span className="score-inline-name">{m.home}</span>
-                  </span>
-                  <ScoreInput value={p.home ?? ""} onChange={(v) => setMatchPred(key, "home", v)} label={`${m.home} goals`} disabled={readOnly} />
-                </div>
-                <span className="vs" aria-hidden="true">
-                  vs
-                </span>
-                <div className="score-cluster score-cluster--away">
-                  <span className="score-team-inline">
-                    <TeamFlag team={m.away} size={24} />
-                    <span className="score-inline-name">{m.away}</span>
-                  </span>
-                  <ScoreInput value={p.away ?? ""} onChange={(v) => setMatchPred(key, "away", v)} label={`${m.away} goals`} disabled={readOnly} />
+      <div className="matches-grid">
+        {matches.map(m => {
+          const key = `${m.home}-${m.away}`;
+          const p = preds[key] || {};
+          const result = getMatchResultForTeams(results?.matches, m.home, m.away);
+          const hasScore = result && result.homeGoals != null && result.awayGoals != null;
+          const canScore = result && (result.isFinished || result.isLive) && hasScore;
+          const matchPts = canScore ? scoreMatch(p, result) : null;
+          return (
+            <div key={key} className="card">
+              <div className="card-header">
+                <span className="group-badge">Group {m.group}</span>
+                <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  {result?.isLive && <span className="live-badge">● LIVE {result.minute}'</span>}
+                  {result?.isFinished && <span className="ft-badge">{result.status}</span>}
+                  {p.home !== undefined && p.away !== undefined && p.home !== "" && p.away !== "" && (
+                    <span className="completion-badge">✓ Predicted</span>
+                  )}
+                  {canScore && (
+                    <span className={`match-pts-pill${matchPts.points === 0 ? " muted" : ""}`} title="Points from this fixture">
+                      +{matchPts.points}
+                    </span>
+                  )}
                 </div>
               </div>
-              <div className="scorer-row">
-                <span className="scorer-label">⚽ Anytime scorer:</span>
-                <select className="styled-select" value={p.scorer || ""} onChange={e => setMatchPred(key, "scorer", e.target.value)} aria-label={`Anytime goalscorer for ${m.home} vs ${m.away}`} disabled={readOnly}>
-                  <option value="">— Pick a player —</option>
-                  {[m.home, m.away].map(team => {
-                    const teamPlayers = PLAYERS[team] || [];
-                    if (!teamPlayers.length) return null;
-                    return (
-                      <optgroup key={team} label={team}>
-                        {teamPlayers.map((pl, i) => (
-                          <option key={i} value={`${team}|${pl}`}>{pl}</option>
-                        ))}
-                      </optgroup>
-                    );
-                  })}
-                </select>
-              </div>
-              <div className="actual-result">
-                <div className="actual-result-label">ACTUAL RESULT</div>
-                {canScore ? (
-                  <>
-                    <div className="actual-score-row">
-                      <span className="actual-score-val">{result.homeGoals}</span>
-                      <span className="actual-score-divider">—</span>
-                      <span className="actual-score-val">{result.awayGoals}</span>
-                    </div>
-                    <span className="match-pts-total-big">+{matchPts.points}</span>
-                    {matchPts.breakdown.length > 0 && (
-                      <div className="match-pts-earned" style={{ marginTop: 8 }}>
-                        <span className="match-pts-detail">
-                          {matchPts.breakdown.map(b => `${b.label} +${b.pts}`).join(" · ")}
-                        </span>
-                      </div>
-                    )}
-                    {matchPts.points === 0 && result.isFinished && (
-                      <div className="match-pts-earned zero">
-                        <span style={{ color: "#555", fontSize: "0.75rem" }}>No points earned</span>
-                      </div>
-                    )}
-                  </>
-                ) : result?.date ? (
-                  <div className="actual-result-pending">
-                    {result.isLive || result.isFinished
-                      ? "Awaiting score from feed…"
-                      : `Scheduled — ${new Date(result.date).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
+              <div className="match-row">
+                <div className="score-line" role="group" aria-label={`Score prediction for ${m.home} vs ${m.away}`}>
+                  <div className="score-cluster score-cluster--home">
+                    <span className="score-team-inline">
+                      <TeamFlag team={m.home} size={24} />
+                      <span className="score-inline-name">{m.home}</span>
+                    </span>
+                    <ScoreInput value={p.home ?? ""} onChange={(v) => setMatchPred(key, "home", v)} label={`${m.home} goals`} disabled={readOnly} />
                   </div>
-                ) : (
-                  <div className="actual-result-pending">No fixture data yet</div>
-                )}
+                  <span className="vs" aria-hidden="true">
+                    vs
+                  </span>
+                  <div className="score-cluster score-cluster--away">
+                    <span className="score-team-inline">
+                      <TeamFlag team={m.away} size={24} />
+                      <span className="score-inline-name">{m.away}</span>
+                    </span>
+                    <ScoreInput value={p.away ?? ""} onChange={(v) => setMatchPred(key, "away", v)} label={`${m.away} goals`} disabled={readOnly} />
+                  </div>
+                </div>
+                <div className="scorer-row">
+                  <span className="scorer-label">⚽ Anytime scorer:</span>
+                  <select className="styled-select" value={p.scorer || ""} onChange={e => setMatchPred(key, "scorer", e.target.value)} aria-label={`Anytime goalscorer for ${m.home} vs ${m.away}`} disabled={readOnly}>
+                    <option value="">— Pick a player —</option>
+                    {[m.home, m.away].map(team => {
+                      const teamPlayers = PLAYERS[team] || [];
+                      if (!teamPlayers.length) return null;
+                      return (
+                        <optgroup key={team} label={team}>
+                          {teamPlayers.map((pl, i) => (
+                            <option key={i} value={`${team}|${pl}`}>{pl}</option>
+                          ))}
+                        </optgroup>
+                      );
+                    })}
+                  </select>
+                </div>
+                <div className="actual-result">
+                  <div className="actual-result-label">ACTUAL RESULT</div>
+                  {canScore ? (
+                    <>
+                      <div className="actual-score-row">
+                        <span className="actual-score-val">{result.homeGoals}</span>
+                        <span className="actual-score-divider">—</span>
+                        <span className="actual-score-val">{result.awayGoals}</span>
+                      </div>
+                      <span className="match-pts-total-big">+{matchPts.points}</span>
+                      {matchPts.breakdown.length > 0 && (
+                        <div className="match-pts-earned" style={{ marginTop: 8 }}>
+                          <span className="match-pts-detail">
+                            {matchPts.breakdown.map(b => `${b.label} +${b.pts}`).join(" · ")}
+                          </span>
+                        </div>
+                      )}
+                      {matchPts.points === 0 && result.isFinished && (
+                        <div className="match-pts-earned zero">
+                          <span style={{ color: "#555", fontSize: "0.75rem" }}>No points earned</span>
+                        </div>
+                      )}
+                    </>
+                  ) : result?.date ? (
+                    <div className="actual-result-pending">
+                      {result.isLive || result.isFinished
+                        ? "Awaiting score from feed…"
+                        : `Scheduled — ${new Date(result.date).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`}
+                    </div>
+                  ) : (
+                    <div className="actual-result-pending">No fixture data yet</div>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -1763,9 +1891,11 @@ function LeaderboardScreen({ results, allUsers, currentUserId, submissionClosed 
               const isExpanded = expandedId === p.id;
               return (
                 <div key={p.id}>
-                  <div
+                  <button
+                    type="button"
                     className={`lb-row clickable${p.id === currentUserId ? " lb-you" : ""}${isExpanded ? " expanded" : ""}`}
                     onClick={() => setExpandedId(isExpanded ? null : p.id)}
+                    aria-expanded={isExpanded}
                     title="Click to view predictions"
                   >
                     <span className={`lb-rank${i === 0 ? " top1" : i === 1 ? " top2" : i === 2 ? " top3" : ""}`}>
@@ -1784,7 +1914,7 @@ function LeaderboardScreen({ results, allUsers, currentUserId, submissionClosed 
                     </div>
                     <div className="lb-pts">{p.total}pts</div>
                     <span className={`lb-chevron${isExpanded ? " open" : ""}`}>▼</span>
-                  </div>
+                  </button>
                   {isExpanded && user && (
                     <UserPredictionsPanel predictions={user.predictions} />
                   )}
@@ -2013,9 +2143,11 @@ export default function App() {
     let cancelled = false;
     (async () => {
       try {
+        let localUpdatedAt = null;
         const raw = localStorage.getItem(STORAGE_KEY);
         if (raw) {
           const local = JSON.parse(raw);
+          localUpdatedAt = typeof local?.updatedAt === "string" ? local.updatedAt : null;
           if (local?.predictions && typeof local.predictions === "object" && !cancelled) {
             setPreds(local.predictions);
           }
@@ -2046,7 +2178,13 @@ export default function App() {
             }
             const row = await fetchPredictionsRow();
             if (!cancelled && row?.predictions && typeof row.predictions === "object") {
-              setPreds(row.predictions);
+              const localMs = localUpdatedAt ? Date.parse(localUpdatedAt) : 0;
+              const serverMs = row.updated_at ? Date.parse(row.updated_at) : 0;
+              if (localMs > serverMs) {
+                showToast("Kept your newer local edits — save again to sync them online.");
+              } else {
+                setPreds(row.predictions);
+              }
             }
           }
         }
@@ -2062,15 +2200,33 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
     const params = new URLSearchParams(window.location.search);
     const paymentStatus = params.get("payment");
     if (paymentStatus === "success") {
-      showToast("Payment successful — predictions locked!");
+      showToast("Payment received — confirming your entry is locked...");
       setScreen("submit");
       (async () => {
         if (isSupabaseConfigured) {
-          const prof = await fetchProfile();
-          if (prof) setProfile(prof);
+          for (let attempt = 0; attempt < 6 && !cancelled; attempt += 1) {
+            const prof = await fetchProfile();
+            if (prof) setProfile(prof);
+            if (prof?.paid && prof?.locked) {
+              showToast("Payment confirmed — predictions locked!");
+              return;
+            }
+            const status = await checkPaymentStatus();
+            if (status.paid) {
+              const latest = await fetchProfile();
+              if (latest) setProfile(latest);
+              if (latest?.paid && latest?.locked) {
+                showToast("Payment confirmed — predictions locked!");
+                return;
+              }
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1500));
+          }
+          if (!cancelled) showToast("Payment is processing — refresh in a moment if your entry still shows unpaid.");
         }
       })();
       window.history.replaceState({}, "", window.location.pathname);
@@ -2079,9 +2235,11 @@ export default function App() {
       setScreen("submit");
       window.history.replaceState({}, "", window.location.pathname);
     }
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
+    if (screen === "signup") return;
     if (!isApiFootballConfigured) return;
     let cancelled = false;
     const poll = async () => {
@@ -2095,9 +2253,10 @@ export default function App() {
     poll();
     const id = setInterval(poll, hasLiveMatches() ? 60_000 : 300_000);
     return () => { cancelled = true; clearInterval(id); };
-  }, []);
+  }, [screen]);
 
   useEffect(() => {
+    if (screen === "signup") return;
     if (!isSupabaseConfigured) return;
     let cancelled = false;
     const load = async () => {
@@ -2113,7 +2272,7 @@ export default function App() {
     load();
     const id = setInterval(load, 120_000);
     return () => { cancelled = true; clearInterval(id); };
-  }, []);
+  }, [screen]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -2152,6 +2311,7 @@ export default function App() {
         predictions: nextPreds,
         screen: nextScreen,
         entered: nextScreen !== "signup",
+        updatedAt: new Date().toISOString(),
       }),
     );
   };
@@ -2204,14 +2364,10 @@ export default function App() {
       username: form.username,
     });
     if (!r.ok) {
+      showToast(r.error);
       if (r.errorCode === "user_already_exists") {
-        showToast(
-          "That email is already registered for sign-in (Supabase auth). Your league profile can be empty — use Sign in and we will create or restore your profile.",
-        );
-        // Signal the SignupScreen to flip to the sign-in tab
         return { switchToSignIn: true };
       }
-      showToast(r.error);
       return;
     }
     if (r.session) {
@@ -2220,7 +2376,7 @@ export default function App() {
       setNeedsProfileCompletion(false);
     } else {
       showToast(
-        "Check your email to confirm your account, then sign in below. Your league profile is created when your account is created (server-side).",
+        "Check your inbox and tap the confirmation link, then sign in below. We'll set up your league profile automatically.",
       );
     }
   };
@@ -2313,7 +2469,11 @@ export default function App() {
     }
     setPaymentLoading(true);
     try {
-      await handleSave();
+      const saveResult = await handleSave({ silentSuccess: true });
+      if (!saveResult.ok) {
+        showToast(saveResult.error || "Save your predictions online before paying.");
+        return;
+      }
       const result = await createCheckoutSession();
       if (result.ok && result.url) {
         window.location.href = result.url;
@@ -2360,25 +2520,33 @@ export default function App() {
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (options = {}) => {
+    const silentSuccess = options?.silentSuccess === true;
     if (profile?.locked || Date.now() >= getSubmissionDeadlineMs(results)) {
-      showToast("Predictions are locked — no changes can be saved.");
-      return;
+      const error = "Predictions are locked — no changes can be saved.";
+      showToast(error);
+      return { ok: false, error };
     }
     persistLocal(preds, screen);
     if (!isSupabaseConfigured) {
-      showToast("Predictions saved locally!");
-      return;
+      const error = "Online save is not configured — payment is unavailable until Supabase is connected.";
+      if (!silentSuccess) showToast("Predictions saved locally!");
+      return { ok: false, error, localOnly: true };
     }
     const r = await upsertPredictions(preds, {});
-    if (r.ok) showToast("Predictions saved!");
-    else showToast(`Saved locally — sync failed: ${r.error}`);
+    if (r.ok) {
+      if (!silentSuccess) showToast("Predictions saved!");
+      return { ok: true };
+    }
+    const error = `Saved locally — sync failed: ${r.error}`;
+    showToast(error);
+    return { ok: false, error };
   };
 
   return (
     <>
       <style>{css}</style>
-      <div className="app">
+      <div className={`app${screen === "signup" ? " app-landing" : ""}`}>
         {screen !== "signup" && (
           <div className="hero">
             <div className="hero-pattern" />

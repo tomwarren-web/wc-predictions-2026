@@ -24,8 +24,8 @@ const EMAIL_TEMPLATES: Record<string, (d: Record<string, unknown>) => { subject:
   matchday_recap: (_d) => ({ subject: "Match Day Recap", html: "<p>Recap</p>" }),
   weekly_standings: (_d) => ({ subject: "Weekly Standings", html: "<p>Standings</p>" }),
   tournament_complete: (_d) => ({ subject: "Tournament Complete!", html: "<p>Done</p>" }),
-  custom: (d) => ({ subject: (d.subject as string) || "Update", html: (d.bodyHtml as string) || "" }),
 };
+const USER_ALLOWED_TYPES = new Set(["welcome"]);
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -71,12 +71,31 @@ async function handleSendEmail(req: Request, deps: SendEmailDeps): Promise<Respo
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
+  const u = user as { id: string; email?: string };
+  if (!USER_ALLOWED_TYPES.has(type)) {
+    return new Response(JSON.stringify({ error: `Email type not allowed: ${type}` }), {
+      status: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+  if (!u.email || String(to).trim().toLowerCase() !== u.email.toLowerCase()) {
+    return new Response(JSON.stringify({ error: "Email recipient must match the signed-in user." }), {
+      status: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+  if (userId && userId !== u.id) {
+    return new Response(JSON.stringify({ error: "userId must match the signed-in user." }), {
+      status: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 
   const { subject, html } = templateFn(data);
 
   const sendResult = await deps.sendViaResend({ to: [to], subject, html });
   await deps.logEmail({
-    user_id: userId || null,
+    user_id: userId || (user as { id: string }).id,
     email_to: to,
     email_type: type,
     subject,
@@ -99,7 +118,7 @@ async function handleSendEmail(req: Request, deps: SendEmailDeps): Promise<Respo
 
 // ─── Stub factories ───────────────────────────────────────────────────────────
 
-const validUser = { id: "user-123" };
+const validUser = { id: "user-123", email: "user@example.com" };
 
 const validDeps = (): SendEmailDeps & { calls: Record<string, unknown[]> } => {
   const calls: Record<string, unknown[]> = { sendViaResend: [], logEmail: [] };
@@ -185,15 +204,14 @@ Deno.test("welcome email → calls Resend and logs to email_log", async () => {
   assertEquals(log.user_id, "user-123");
 });
 
-Deno.test("payment_confirmation email uses correct template", async () => {
+Deno.test("payment_confirmation is blocked for browser callers", async () => {
   const deps = validDeps();
-  await handleSendEmail(
+  const res = await handleSendEmail(
     makeRequest({ to: "user@example.com", type: "payment_confirmation", data: { name: "Bob" } }),
     deps,
   );
-  const sent = deps.calls.sendViaResend[0] as Record<string, unknown>;
-  assertEquals(typeof sent.subject, "string");
-  assertEquals((sent.subject as string).includes("Confirmed"), true);
+  assertEquals(res.status, 403);
+  assertEquals(deps.calls.sendViaResend.length, 0);
 });
 
 Deno.test("Resend failure → logs status as 'failed' and returns 502", async () => {
@@ -212,20 +230,18 @@ Deno.test("Resend failure → logs status as 'failed' and returns 502", async ()
   assertEquals(log.status, "failed");
 });
 
-Deno.test("all 7 template types are dispatched without throwing", async () => {
-  const types = ["welcome", "payment_confirmation", "predictions_locked",
-    "matchday_recap", "weekly_standings", "tournament_complete", "custom"];
+Deno.test("custom email type is not available", async () => {
+  const res = await handleSendEmail(
+    makeRequest({ to: "user@example.com", type: "custom", data: { bodyHtml: "<p>Hi</p>" } }),
+    validDeps(),
+  );
+  assertEquals(res.status, 400);
+});
 
-  for (const type of types) {
-    const deps = validDeps();
-    const res = await handleSendEmail(
-      makeRequest({ to: "u@example.com", type, data: { name: "Test", subject: "Test" } }),
-      deps,
-    );
-    assertEquals(
-      res.status,
-      200,
-      `Template '${type}' should return 200 but got ${res.status}`,
-    );
-  }
+Deno.test("recipient must match authenticated user email", async () => {
+  const res = await handleSendEmail(
+    makeRequest({ to: "other@example.com", type: "welcome", data: { name: "Test" } }),
+    validDeps(),
+  );
+  assertEquals(res.status, 403);
 });

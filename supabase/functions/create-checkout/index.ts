@@ -13,9 +13,41 @@ const corsHeaders = {
   "Access-Control-Max-Age": "86400",
 };
 
+function resolveAppUrl(payloadOrigin: unknown) {
+  const fallback = Deno.env.get("APP_URL") || "http://localhost:5173";
+  const allowed = new Set<string>();
+
+  for (const raw of [fallback, ...(Deno.env.get("ALLOWED_APP_ORIGINS") || "").split(",")]) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    try {
+      allowed.add(new URL(trimmed).origin);
+    } catch {
+      console.warn("Ignoring invalid app origin:", trimmed);
+    }
+  }
+
+  if (typeof payloadOrigin === "string") {
+    try {
+      const origin = new URL(payloadOrigin).origin;
+      if (allowed.has(origin)) return origin;
+    } catch {
+      // Ignore malformed browser input and fall back to server configuration.
+    }
+  }
+
+  return new URL(fallback).origin;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
+  }
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Method not allowed" }), {
+      status: 405,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 
   try {
@@ -102,11 +134,7 @@ serve(async (req) => {
     }
 
     const payload = await req.json().catch(() => ({}));
-    const origin =
-      typeof payload?.origin === "string" && payload.origin.startsWith("http")
-        ? payload.origin
-        : undefined;
-    const appUrl = origin || Deno.env.get("APP_URL") || "http://localhost:5173";
+    const appUrl = resolveAppUrl(payload?.origin);
 
     const session = await stripe.checkout.sessions.create({
       customer: customerId,

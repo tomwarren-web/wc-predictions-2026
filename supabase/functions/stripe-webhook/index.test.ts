@@ -13,6 +13,7 @@ import { assertEquals } from "https://deno.land/std@0.177.0/testing/asserts.ts";
 
 interface WebhookDeps {
   constructEvent: (body: string, sig: string, secret: string) => unknown;
+  getPaymentBySession: (sessionId: string) => Promise<{ user_id: string; status: string } | null>;
   updatePayment: (sessionId: string, data: Record<string, unknown>) => Promise<void>;
   updateProfile: (userId: string, data: Record<string, unknown>) => Promise<void>;
   getProfile: (userId: string) => Promise<{ email: string; name: string } | null>;
@@ -43,7 +44,16 @@ async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Response>
     const userId = (obj.metadata as Record<string, unknown>)?.supabase_uid as string;
 
     if (!userId) {
-      return new Response("Missing user ID", { status: 400 });
+      return new Response(JSON.stringify({ received: true, ignored: "missing_user_id" }), { status: 200 });
+    }
+
+    if (obj.payment_status !== "paid" || obj.amount_total !== 1000 || obj.currency !== "gbp" || !obj.payment_intent) {
+      return new Response(JSON.stringify({ received: true, ignored: "invalid_payment_payload" }), { status: 200 });
+    }
+
+    const payment = await deps.getPaymentBySession(obj.id as string);
+    if (!payment || payment.user_id !== userId) {
+      return new Response(JSON.stringify({ received: true, ignored: "payment_row_mismatch" }), { status: 200 });
     }
 
     await deps.updatePayment(obj.id as string, {
@@ -53,9 +63,11 @@ async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Response>
     });
     await deps.updateProfile(userId, { paid: true, locked: true });
 
-    const profile = await deps.getProfile(userId);
-    if (profile?.email) {
-      await deps.sendEmail(profile.email, "payment_confirmation", { name: profile.name });
+    if (payment.status !== "completed") {
+      const profile = await deps.getProfile(userId);
+      if (profile?.email) {
+        await deps.sendEmail(profile.email, "payment_confirmation", { name: profile.name });
+      }
     }
   }
 
@@ -70,7 +82,7 @@ async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Response>
     await deps.markPaymentRefunded(intentId);
     const payment = await deps.getPaymentByIntent(intentId);
     if (payment?.user_id) {
-      await deps.updateProfile(payment.user_id, { paid: false });
+      await deps.updateProfile(payment.user_id, { paid: false, locked: false });
     }
   }
 
@@ -95,6 +107,9 @@ const checkoutCompletedEvent = JSON.stringify({
     object: {
       id: "cs_test_abc",
       payment_intent: "pi_test_xyz",
+      payment_status: "paid",
+      amount_total: 1000,
+      currency: "gbp",
       metadata: { supabase_uid: "user-abc-123" },
     },
   },
@@ -121,6 +136,7 @@ const validDeps = (): WebhookDeps & { calls: Record<string, unknown[]> } => {
   return {
     calls,
     constructEvent: (body, _sig, _secret) => JSON.parse(body),
+    getPaymentBySession: async (_id) => ({ user_id: "user-abc-123", status: "pending" }),
     updatePayment: async (id, data) => { calls.updatePayment.push({ id, data }); },
     updateProfile: async (uid, data) => { calls.updateProfile.push({ uid, data }); },
     getProfile: async (_uid) => ({ email: "user@example.com", name: "Test User" }),
@@ -190,15 +206,15 @@ Deno.test("checkout.session.completed → triggers payment_confirmation email", 
   assertEquals(email.type, "payment_confirmation");
 });
 
-Deno.test("checkout.session.completed → missing supabase_uid returns 400", async () => {
+Deno.test("checkout.session.completed → missing supabase_uid is acknowledged without locking", async () => {
   const event = JSON.stringify({
     type: "checkout.session.completed",
-    data: { object: { id: "cs_abc", payment_intent: "pi_abc", metadata: {} } },
+    data: { object: { id: "cs_abc", payment_intent: "pi_abc", payment_status: "paid", amount_total: 1000, currency: "gbp", metadata: {} } },
   });
-  const res = await handleWebhook(makeWebhookRequest(event), validDeps());
-  assertEquals(res.status, 400);
-  const text = await res.text();
-  assertEquals(text, "Missing user ID");
+  const deps = validDeps();
+  const res = await handleWebhook(makeWebhookRequest(event), deps);
+  assertEquals(res.status, 200);
+  assertEquals(deps.calls.updateProfile.length, 0);
 });
 
 Deno.test("checkout.session.expired → marks payment as expired", async () => {
@@ -210,7 +226,7 @@ Deno.test("checkout.session.expired → marks payment as expired", async () => {
   assertEquals(call.id, "cs_test_expired");
 });
 
-Deno.test("charge.refunded → marks payment refunded and sets paid:false on profile", async () => {
+Deno.test("charge.refunded → marks payment refunded and clears paid/locked on profile", async () => {
   const deps = validDeps();
   const res = await handleWebhook(makeWebhookRequest(refundedEvent), deps);
   assertEquals(res.status, 200);
@@ -221,6 +237,7 @@ Deno.test("charge.refunded → marks payment refunded and sets paid:false on pro
     (c) => (c as { data: Record<string, unknown> }).data.paid === false,
   );
   assertEquals(profileUpdate !== undefined, true);
+  assertEquals((profileUpdate as { data: Record<string, unknown> }).data.locked, false);
 });
 
 Deno.test("returns 200 with received:true for unknown event types", async () => {

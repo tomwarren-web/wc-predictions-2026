@@ -31,6 +31,14 @@ jobs:
           # Provide dummy env vars so modules initialise without errors in tests
           VITE_API_FOOTBALL_KEY: ci-test-key
 
+      - name: Build production app
+        run: npm run build
+
+      - name: Generate coverage report
+        run: npm run test:coverage
+        env:
+          VITE_API_FOOTBALL_KEY: ci-test-key
+
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         if: always()

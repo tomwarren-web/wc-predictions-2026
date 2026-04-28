@@ -36,6 +36,12 @@ async function handleCheckout(
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: corsHeaders });
   }
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Method not allowed" }), {
+      status: 405,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) {
@@ -81,11 +87,16 @@ async function handleCheckout(
   }
 
   const payload = await req.json().catch(() => ({}));
-  const origin =
-    typeof (payload as { origin?: string }).origin === "string" &&
-    (payload as { origin: string }).origin.startsWith("http")
-      ? (payload as { origin: string }).origin
-      : "http://localhost:5173";
+  const allowedOrigins = new Set(["http://localhost:5173", "https://myapp.com"]);
+  let origin = "http://localhost:5173";
+  if (typeof (payload as { origin?: string }).origin === "string") {
+    try {
+      const candidate = new URL((payload as { origin: string }).origin).origin;
+      if (allowedOrigins.has(candidate)) origin = candidate;
+    } catch {
+      // Fall back to configured app URL.
+    }
+  }
 
   const session = await deps.createStripeSession(customerId, origin, (user as { id: string }).id);
   await deps.insertPayment({
@@ -124,7 +135,9 @@ const makeRequest = (overrides: { method?: string; auth?: string; body?: unknown
       "Content-Type": "application/json",
       ...(overrides.auth !== undefined ? { Authorization: overrides.auth } : { Authorization: "Bearer valid-token" }),
     },
-    body: overrides.body !== undefined ? JSON.stringify(overrides.body) : JSON.stringify({ origin: "https://myapp.com" }),
+    body: (overrides.method || "POST") === "GET"
+      ? undefined
+      : overrides.body !== undefined ? JSON.stringify(overrides.body) : JSON.stringify({ origin: "https://myapp.com" }),
   });
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -134,6 +147,11 @@ Deno.test("OPTIONS preflight returns 204 with CORS headers", async () => {
   const res = await handleCheckout(req, validDeps());
   assertEquals(res.status, 204);
   assertEquals(res.headers.get("Access-Control-Allow-Origin"), "*");
+});
+
+Deno.test("non-POST request returns 405", async () => {
+  const res = await handleCheckout(makeRequest({ method: "GET" }), validDeps());
+  assertEquals(res.status, 405);
 });
 
 Deno.test("missing Authorization header returns 401", async () => {
@@ -226,4 +244,16 @@ Deno.test("inserts a pending payment row after session creation", async () => {
   assertEquals(insertedRows[0].status, "pending");
   assertEquals(insertedRows[0].amount_pence, 1000);
   assertEquals(insertedRows[0].currency, "gbp");
+});
+
+Deno.test("untrusted browser origin falls back to configured app URL", async () => {
+  let usedOrigin = "";
+  const deps = validDeps();
+  deps.createStripeSession = async (_cid, origin, _uid) => {
+    usedOrigin = origin;
+    return mockSession;
+  };
+
+  await handleCheckout(makeRequest({ body: { origin: "https://evil.example" } }), deps);
+  assertEquals(usedOrigin, "http://localhost:5173");
 });
