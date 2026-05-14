@@ -114,8 +114,8 @@ describe("friendlyAuthMessage", () => {
     expect(friendlyAuthMessage(null, "not_configured")).toMatch(/not set up/i);
   });
 
-  it("falls back to original message when unrecognised", () => {
-    expect(friendlyAuthMessage("Custom server message", "unknown_code")).toBe("Custom server message");
+  it("hides unrecognised technical messages behind a generic error", () => {
+    expect(friendlyAuthMessage("Custom server message", "unknown_code")).toBe("Something went wrong. Please try again.");
   });
 
   it("handles empty message", () => {

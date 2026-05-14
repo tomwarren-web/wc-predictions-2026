@@ -72,6 +72,36 @@ function authEmailRedirectUrl() {
   return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
 
+function cleanText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeEmail(email) {
+  return cleanText(email).toLowerCase();
+}
+
+function defaultUsernameForUser(userId) {
+  const suffix = cleanText(userId).replace(/-/g, "").slice(0, 8) || `${Date.now()}`;
+  return `user_${suffix}`;
+}
+
+function usernameTakenError(error) {
+  const msg = `${cleanText(error?.message)} ${cleanText(error?.details)}`.toLowerCase();
+  return (
+    error?.code === "23505" &&
+    (msg.includes("username") || msg.includes("profiles_username_idx") || msg.includes("profiles_username_key"))
+  );
+}
+
+function profileIdConflictError(error) {
+  const msg = `${cleanText(error?.message)} ${cleanText(error?.details)}`.toLowerCase();
+  return error?.code === "23505" && (msg.includes("profiles_pkey") || msg.includes("id"));
+}
+
+function networkErrorMessage(lower) {
+  return lower.includes("network") || lower.includes("fetch") || lower.includes("failed to fetch");
+}
+
 /**
  * Turns Supabase Auth API errors into short messages for the signup / sign-in UI.
  * Keeps technical details out of toasts while still matching common codes and phrases.
@@ -89,14 +119,22 @@ export function friendlyAuthMessage(rawMessage, code) {
       return "That email already has an account. Use Sign in below (we can restore your league profile if needed).";
     case "invalid_credentials":
       return "Wrong email or password. Try again, or use Forgot password.";
+    case "email_address_invalid":
+      return "Enter a valid email address.";
     case "email_not_confirmed":
-      return "Confirm your email first — open the link we sent you, then sign in.";
+      return "Confirm your email first, then sign in.";
     case "weak_password":
       return "That password is too weak. Use at least 6 characters.";
     case "signup_disabled":
       return "New accounts are not open right now. Try again later or contact the organiser.";
     case "user_banned":
       return "This account cannot sign in. Contact support if you think this is a mistake.";
+    case "over_email_send_rate_limit":
+    case "over_request_rate_limit":
+    case "rate_limit_exceeded":
+      return "Too many attempts. Wait a minute, then try again.";
+    case "validation_failed":
+      return "Check the details and try again.";
     default:
       break;
   }
@@ -109,32 +147,59 @@ export function friendlyAuthMessage(rawMessage, code) {
     return "Wrong email or password. Try again, or use Forgot password.";
   }
   if (lower.includes("email not confirmed") || lower.includes("not confirmed")) {
-    return "Confirm your email first — open the link we sent you, then sign in.";
+    return "Confirm your email first, then sign in.";
   }
   if (lower.includes("already been registered") || lower.includes("user already registered")) {
     return "That email already has an account. Use Sign in below.";
   }
   if (lower.includes("rate limit") || lower.includes("too many requests") || lower.includes("too many")) {
-    return "Too many attempts — wait a minute, then try again.";
+    return "Too many attempts. Wait a minute, then try again.";
   }
-  if (lower.includes("network") || lower.includes("fetch") || lower.includes("failed to fetch")) {
+  if (networkErrorMessage(lower)) {
     return "Could not reach the server. Check your connection and try again.";
   }
   if (lower.includes("422") || lower.includes("redirect") || lower.includes("redirect_uri")) {
-    return "Email link settings need updating on the server — ask the organiser to check Supabase redirect URLs.";
+    return "Email link settings need updating on the server. Ask the organiser to check Supabase redirect URLs.";
+  }
+  if (
+    lower.includes("database error saving new user") ||
+    lower.includes("duplicate key") ||
+    lower.includes("profiles_username")
+  ) {
+    return "We could not finish creating your profile. Try a different display username, then try again.";
   }
 
   if (!msg) return "Something went wrong. Please try again.";
-  return msg;
+  return "Something went wrong. Please try again.";
+}
+
+export function friendlyProfileMessage(rawMessage, code) {
+  const c = code || "";
+  const msg = cleanText(rawMessage);
+  const lower = msg.toLowerCase();
+
+  if (c === "not_configured")
+    return "Online accounts are not set up in this app yet. If this keeps happening, contact the organiser.";
+  if (c === "no_session") return "Your sign-in expired. Sign in again to continue.";
+  if (usernameTakenError({ code: c, message: msg })) return "That display username is already taken. Choose another one.";
+  if (c === "23503" || lower.includes("foreign key")) return "Your account profile is still being created. Try again in a moment.";
+  if (c === "42501" || lower.includes("row-level security") || lower.includes("permission denied")) {
+    return "We could not save your profile with this session. Sign in again and try once more.";
+  }
+  if (networkErrorMessage(lower)) return "Could not reach the server. Check your connection and try again.";
+  if (lower.includes("server-managed fields")) return "Payment status is managed by the server and cannot be changed here.";
+
+  return "We could not save your profile. Please try again.";
 }
 
 export async function signUpWithPassword({ email, password, name, username }) {
   if (!supabase) return { ok: false, error: friendlyAuthMessage(null, "not_configured"), errorCode: "not_configured" };
   const emailRedirectTo = authEmailRedirectUrl();
-  const options = { data: { name, username: username || "" } };
+  const cleanEmail = normalizeEmail(email);
+  const options = { data: { name: cleanText(name), username: cleanText(username) } };
   if (emailRedirectTo) options.emailRedirectTo = emailRedirectTo;
   const { data, error } = await supabase.auth.signUp({
-    email,
+    email: cleanEmail,
     password,
     options,
   });
@@ -144,26 +209,47 @@ export async function signUpWithPassword({ email, password, name, username }) {
       error: friendlyAuthMessage(error.message, error.code),
       errorCode: error.code,
     };
-  return { ok: true, session: data.session, user: data.user };
+  if (Array.isArray(data?.user?.identities) && data.user.identities.length === 0) {
+    return {
+      ok: false,
+      error: friendlyAuthMessage("User already registered", "user_already_exists"),
+      errorCode: "user_already_exists",
+    };
+  }
+  if (data.session) return { ok: true, session: data.session, user: data.user };
+
+  // If Confirm email is enabled, Supabase returns a user but no session.
+  // Check once for immediate-session projects, then ask the user to confirm.
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (session) return { ok: true, session, user: data.user };
+  return {
+    ok: true,
+    session: null,
+    user: data.user,
+    needsEmailConfirmation: true,
+    message: "Check your email to confirm your account, then sign in.",
+  };
 }
 
 export async function signInWithPassword({ email, password }) {
   if (!supabase) return { ok: false, error: friendlyAuthMessage(null, "not_configured"), errorCode: "not_configured" };
-  const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+  const { data, error } = await supabase.auth.signInWithPassword({ email: normalizeEmail(email), password });
   if (error)
     return {
       ok: false,
       error: friendlyAuthMessage(error.message, error.code),
       errorCode: error.code,
     };
-  return { ok: true, session: data.session };
+  return { ok: true, session: data.session, user: data.user };
 }
 
 export async function requestPasswordReset(email) {
   if (!supabase) return { ok: false, error: friendlyAuthMessage(null, "not_configured"), errorCode: "not_configured" };
   const redirectTo = authEmailRedirectUrl();
   const opts = redirectTo ? { redirectTo } : {};
-  const { error } = await supabase.auth.resetPasswordForEmail(email, opts);
+  const { error } = await supabase.auth.resetPasswordForEmail(normalizeEmail(email), opts);
   if (error)
     return {
       ok: false,
@@ -174,40 +260,103 @@ export async function requestPasswordReset(email) {
 }
 
 // ── Profile ──────────────────────────────────────────────────────────────────
-// Landing-page signup creates a row with paid=false / locked=false. Stripe webhook
-// (checkout.session.completed) sets paid=true and locked=true after payment.
+// Supabase Auth owns credentials. The DB trigger creates public.profiles; the
+// client only updates editable profile fields or repairs old rows missing one.
+// Stripe webhook (checkout.session.completed) sets paid=true and locked=true.
 
 export async function upsertProfile({ name, email, username }) {
-  if (!supabase) return { ok: false, error: "not_configured" };
+  if (!supabase) return { ok: false, error: friendlyProfileMessage(null, "not_configured"), errorCode: "not_configured" };
   const session = await ensureSupabaseSession();
-  if (!session?.user?.id) return { ok: false, error: "no_session" };
+  if (!session?.user?.id) return { ok: false, error: friendlyProfileMessage(null, "no_session"), errorCode: "no_session" };
 
-  const { data: existing } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("id", session.user.id)
-    .maybeSingle();
-
-  const base = {
-    name,
-    email,
-    username: username || `user_${session.user.id.slice(0, 8)}`,
+  const meta = session.user.user_metadata && typeof session.user.user_metadata === "object" ? session.user.user_metadata : {};
+  const emailFromSession = normalizeEmail(session.user.email);
+  const profilePatch = {
+    name: cleanText(name) || cleanText(meta.name) || (emailFromSession ? emailFromSession.split("@")[0] : "Player"),
+    email: normalizeEmail(email) || emailFromSession,
+    username: cleanText(username) || cleanText(meta.username) || defaultUsernameForUser(session.user.id),
   };
 
-  if (!existing) {
-    const { error } = await supabase.from("profiles").insert({
-      id: session.user.id,
-      ...base,
-      paid: false,
-      locked: false,
-    });
-    if (error) return { ok: false, error: error.message };
-    return { ok: true };
+  const { data: existing, error: existingError } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", session.user.id)
+    .maybeSingle();
+  if (existingError) {
+    return {
+      ok: false,
+      error: friendlyProfileMessage(`${existingError.message || ""} ${existingError.details || ""}`, existingError.code),
+      errorCode: existingError.code,
+    };
   }
 
-  const { error } = await supabase.from("profiles").update(base).eq("id", session.user.id);
-  if (error) return { ok: false, error: error.message };
-  return { ok: true };
+  if (existing) {
+    const { data, error } = await supabase
+      .from("profiles")
+      .update(profilePatch)
+      .eq("id", session.user.id)
+      .select("*")
+      .maybeSingle();
+    if (error)
+      return {
+        ok: false,
+        error: friendlyProfileMessage(`${error.message || ""} ${error.details || ""}`, error.code),
+        errorCode: error.code,
+      };
+    return { ok: true, profile: data || { ...existing, ...profilePatch } };
+  }
+
+  const insertPayload = {
+    id: session.user.id,
+    ...profilePatch,
+    paid: false,
+    locked: false,
+  };
+
+  const insertProfile = async (payload) =>
+    supabase
+      .from("profiles")
+      .insert(payload)
+      .select("*")
+      .maybeSingle();
+
+  let { data, error } = await insertProfile(insertPayload);
+
+  if (profileIdConflictError(error)) {
+    const latest = await fetchProfile();
+    if (latest) {
+      const update = await supabase
+        .from("profiles")
+        .update(profilePatch)
+        .eq("id", session.user.id)
+        .select("*")
+        .maybeSingle();
+      if (!update.error) return { ok: true, profile: update.data || { ...latest, ...profilePatch } };
+      error = update.error;
+    }
+  }
+
+  if (usernameTakenError(error)) {
+    const retryPayload = { ...insertPayload, username: defaultUsernameForUser(session.user.id) };
+    const retry = await insertProfile(retryPayload);
+    data = retry.data;
+    error = retry.error;
+    if (!error) {
+      return {
+        ok: true,
+        profile: data || retryPayload,
+        warning: "That display username was taken, so we assigned a unique one for now.",
+      };
+    }
+  }
+
+  if (error)
+    return {
+      ok: false,
+      error: friendlyProfileMessage(`${error.message || ""} ${error.details || ""}`, error.code),
+      errorCode: error.code,
+    };
+  return { ok: true, profile: data || insertPayload };
 }
 
 export async function fetchProfile() {
@@ -236,21 +385,24 @@ export async function ensureProfileFromAuthSession() {
   const session = await ensureSupabaseSession();
   if (!session?.user?.id) return { ok: false, error: "no_session", profile: null, created: false };
 
-  const existing = await fetchProfile();
-  if (existing) return { ok: true, profile: existing, created: false };
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const existing = await fetchProfile();
+    if (existing) return { ok: true, profile: existing, created: false };
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
 
   const u = session.user;
   const meta = u.user_metadata && typeof u.user_metadata === "object" ? u.user_metadata : {};
-  const email = typeof u.email === "string" ? u.email.trim() : "";
-  const nameFromMeta = typeof meta.name === "string" ? meta.name.trim() : "";
+  const email = normalizeEmail(u.email);
+  const nameFromMeta = cleanText(meta.name);
   const name = nameFromMeta || (email ? email.split("@")[0] : "") || "Player";
-  const usernameFromMeta = typeof meta.username === "string" ? meta.username.trim() : "";
-  const username = usernameFromMeta || `user_${u.id.slice(0, 8)}`;
+  const usernameFromMeta = cleanText(meta.username);
+  const username = usernameFromMeta || defaultUsernameForUser(u.id);
 
   const up = await upsertProfile({ name, email, username });
   if (!up.ok) return { ok: false, error: up.error, profile: null, created: false };
 
-  const profile = await fetchProfile();
+  const profile = up.profile || (await fetchProfile());
   return { ok: true, profile, created: true };
 }
 
@@ -438,7 +590,7 @@ export async function upsertPredictions(predictions, profilePatch) {
     const ensured = await ensureProfileFromAuthSession();
     prof = ensured.profile;
     if (!prof) {
-      return { ok: false, error: ensured.error || "no_profile — sign in again or complete your profile" };
+      return { ok: false, error: ensured.error || "We could not load your profile. Sign in again, then try once more." };
     }
   }
   if (prof.locked) return { ok: false, error: "predictions_locked" };

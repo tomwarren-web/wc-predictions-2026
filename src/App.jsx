@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   isSupabaseConfigured,
   supabase,
@@ -19,6 +19,7 @@ import {
 import { isApiFootballConfigured, fetchAllResults, hasLiveMatches, getMatchResultForTeams } from "./lib/api-football";
 import { getSubmissionDeadlineMs, getFirstKickoffMs, formatCountdown, formatDeadlineLocal } from "./lib/tournament-deadline";
 import { scorePredictions, scoreMatch } from "./lib/scoring";
+import { PLAYERS } from "./data/players";
 import heroImg from "./assets/hero.png";
 
 const STORAGE_KEY = "wc-predictions-2026";
@@ -131,59 +132,22 @@ function TeamFlag({ team, className = "", size = 24 }) {
   );
 }
 
-// 2026 WC squads — forwards & attacking mids prioritised for scorer predictions
-const PLAYERS = {
-  "Mexico": ["Santiago Giménez","Hirving Lozano","Alexis Vega","Raúl Jiménez","Henry Martín","Roberto Alvarado","Uriel Antuna","César Huerta","Julián Quiñones","Diego Laínez","Orbelin Pineda","Luis Chávez","Edson Álvarez","Luis Romo","Johan Vásquez"],
-  "South Africa": ["Lyle Foster","Percy Tau","Evidence Makgopa","Iqraam Rayners","Bongokuhle Hlongwane","Teboho Mokoena","Themba Zwane","Oswin Appollis","Relebohile Mofokeng","Elias Mokwana","Aubrey Modiba","Thabiso Kutumela","Ethan Brooks","Sphephelo Sithole","Thapelo Morena"],
-  "South Korea": ["Son Heung-min","Lee Kang-in","Hwang Hee-chan","Oh Hyeon-gyu","Cho Gue-sung","Bae Jun-ho","Hwang In-beom","Jeong Woo-yeong","Lee Jae-sung","Yang Hyun-jun","Song Min-kyu","Um Won-sang","Seol Young-woo","Park Jin-seop","Kwon Chang-hoon"],
-  "Czech Republic": ["Patrik Schick","Adam Hlozek","Tomáš Souček","Lukáš Provod","Jan Kuchta","Alex Král","Mojmír Chytil","Pavel Šulc","Adam Karabec","Ondřej Lingr","Václav Jurečka","Jakub Pešek","Vladimír Coufal","David Jurásek","Jiří Jirásek"],
-  "Canada": ["Jonathan David","Alphonso Davies","Cyle Larin","Tajon Buchanan","Ismaël Koné","Liam Millar","Jonathan Osorio","Stephen Eustáquio","Jacob Shaffelburg","Jacen Russell-Rowe","Alistair Johnston","Ali Ahmed","Theo Corbeanu","Junior Hoilett","Moise Bombito"],
-  "Bosnia-Herzegovina": ["Ermedin Demirovic","Benjamin Tahirović","Amer Gojak","Haris Hajradinović","Luka Menalo","Armin Hodžić","Veldin Muharemovic","Smail Prevljak","Aldin Turković","Denis Huseinbašić","Džemal Šabović","Lazar Vušković","Mersud Ahmetovic","Nikola Krstović","Edin Džeko"],
-  "Qatar": ["Akram Afif","Almoez Ali","Mohammed Muntari","Abdulaziz Hatem","Hassan Al-Haydos","Hisham Asaad","Bassam Al-Rawi","Ahmed Alaaeldin","Yusuf Abdurisag","Boualem Khoukhi","Assim Madibo","Abdullah Al-Ahrak","Ismaeel Mohammad","Karim Boudiaf","Ali Asad"],
-  "Switzerland": ["Breel Embolo","Noah Okafor","Dan Ndoye","Zeki Amdouni","Ruben Vargas","Fabian Rieder","Granit Xhaka","Remo Freuler","Djibril Sow","Kwadwo Duah","Vincent Sierro","Andi Zeqiri","Xherdan Shaqiri","Renato Steffen","Manuel Akanji"],
-  "Brazil": ["Vinicius Jr","Rodrygo","Raphinha","Endrick","Estêvão","Savinho","Gabriel Martinelli","Lucas Paquetá","Bruno Guimarães","Gabriel Jesus","Igor Jesus","Pedro","Luiz Henrique","João Pedro","Marquinhos"],
-  "Morocco": ["Youssef En-Nesyri","Hakim Ziyech","Achraf Hakimi","Brahim Díaz","Azzedine Ounahi","Abde Ezzalzouli","Soufiane Rahimi","Bilal El Khannouss","Zakaria Aboukhlal","Ilias Chair","Sofiane Boufal","Noussair Mazraoui","Amine Adli","Sofyan Amrabat","Munir El Haddadi"],
-  "Haiti": ["Frantzdy Pierrot","Duckens Nazon","Derrick Etienne Jr","Bryan Alcéus","Steeven Saba","Leverton Pierre","Richardo Thomas","Josué Duverger","Jeff Louis","Wilde-Donald Guerrier","Carlton Ulengo","Ricardo Ade","Danley Jean Jacques","Mechack Jérôme","Andy Nado"],
-  "Scotland": ["Scott McTominay","Che Adams","Lawrence Shankland","John McGinn","Andy Robertson","Ryan Christie","Ben Doak","Lewis Ferguson","Tommy Conway","Billy Gilmour","Stuart Armstrong","Kenny McLean","James Forrest","Lyndon Dykes","Ryan Jack"],
-  "USA": ["Christian Pulisic","Gio Reyna","Ricardo Pepi","Folarin Balogun","Tim Weah","Josh Sargent","Weston McKennie","Yunus Musah","Tyler Adams","Brenden Aaronson","Haji Wright","Malik Tillman","Cade Cowell","Brandon Vazquez","Sergiño Dest"],
-  "Paraguay": ["Miguel Almirón","Julio Enciso","Antonio Sanabria","Ramón Sosa","Alejandro Romero Gamarra","Ángel Romero","Adam Bareiro","Óscar Romero","Mathías Villasanti","Richard Sánchez","Gabriel Avalos","Gustavo Gómez","Iván Villalba","Derlis González","Hugo Millán"],
-  "Australia": ["Craig Goodwin","Garang Kuol","Nestory Irankunda","Mitchell Duke","Martin Boyle","Riley McGree","Jackson Irvine","Ajdin Hrustic","Marco Tilio","Keanu Baccus","Kusini Yengi","Adam Taggart","Connor Metcalfe","Awer Mabil","Mathew Leckie"],
-  "Turkey": ["Arda Güler","Hakan Çalhanoğlu","Kerem Aktürkoğlu","Barış Alper Yılmaz","Ferdi Kadıoğlu","Orkun Kökçü","Okay Yokuşlu","Cengiz Ünder","Semih Kılıçsoy","Bertuğ Yıldırım","Salih Özcan","Mert Müldür","Ozan Kabak","Zeki Çelik","Kenan Karaman"],
-  "Germany": ["Florian Wirtz","Jamal Musiala","Kai Havertz","Leroy Sané","Niclas Füllkrug","Serge Gnabry","Deniz Undav","Maximilian Beier","Chris Führich","Tim Kleindienst","Joshua Kimmich","İlkay Gündoğan","Robert Andrich","Felix Nmecha","Youssoufa Moukoko"],
-  "Curaçao": ["Leandro Bacuna","Rangelo Janga","Kenji Gorré","Elson Hooi","Jurien Gaari","Juninho Bacuna","Charlton Vicento","Giliano Wijnaldum","Gervane Kastaneer","Jarchinio Antonia","Vurnon Anita","Cuco Martina","Shermaine Martina","Ruven Providence","Darryl Lachman"],
-  "Ivory Coast": ["Sébastien Haller","Simon Adingra","Nicolas Pépé","Oumar Diakité","Christian Kouamé","Franck Kessié","Ibrahim Sangaré","Maxwel Cornet","Hamed Traoré","Jérémy Boga","Wilfried Zaha","Jonathan Bamba","Odilon Kossounou","Jean-Philippe Gbamin","Serge Aurier"],
-  "Ecuador": ["Kendry Páez","Enner Valencia","Moisés Caicedo","Gonzalo Plata","Jeremy Sarmiento","Djorkaeff Reasco","Kevin Rodríguez","John Yeboah","Alan Minda","Michael Estrada","Ángel Mena","Pervis Estupiñán","Joao Rojas","William Pacho","Fidel Martínez"],
-  "Netherlands": ["Cody Gakpo","Xavi Simons","Memphis Depay","Donyell Malen","Brian Brobbey","Joshua Zirkzee","Wout Weghorst","Frenkie de Jong","Tijjani Reijnders","Ryan Gravenberch","Jeremie Frimpong","Steven Bergwijn","Denzel Dumfries","Virgil van Dijk","Jurriën Timber"],
-  "Japan": ["Takefusa Kubo","Kaoru Mitoma","Ritsu Doan","Ayase Ueda","Kyogo Furuhashi","Takumi Minamino","Daichi Kamada","Junya Ito","Ao Tanaka","Keito Nakamura","Koji Miyoshi","Wataru Endo","Hidemasa Morita","Reo Hatate","Takehiro Tomiyasu"],
-  "Sweden": ["Alexander Isak","Viktor Gyökeres","Dejan Kulusevski","Anthony Elanga","Emil Forsberg","Mattias Svanberg","Jesper Karlsson","Victor Claesson","Jordan Larsson","Robin Quaison","Joakim Nilsson","Pontus Jansson","Ludvig Augustinsson","Marcus Danielson","Marcus Pedersen"],
-  "Tunisia": ["Anis Ben Slimane","Hannibal Mejbri","Youssef Msakni","Ellyes Skhiri","Seifeddine Jaziri","Issam Jebali","Wahbi Khazri","Mohamed Drager","Ferjani Sassi","Naim Sliti","Ali Abdi","Hamza Rafia","Montassar Talbi","Ala Ghram","Saad Bguir"],
-  "Belgium": ["Kevin De Bruyne","Romelu Lukaku","Lois Openda","Jeremy Doku","Leandro Trossard","Charles De Ketelaere","Johan Bakayoko","Julien Duranville","Amadou Onana","Yannick Carrasco","Youri Tielemans","Dries Mertens","Arthur Vermeeren","Michy Batshuayi","Hans Vanaken"],
-  "Egypt": ["Mohamed Salah","Omar Marmoush","Mostafa Mohamed","Trezeguet","Ahmed Hassan Kouka","Emam Ashour","Ibrahim Adel","Ahmed Sayed Zizou","Mohamed Elneny","Akram Tawfik","Marwan Hamdi","Hussein El Shahat","Amr El-Sulaya","Karim Fouad","Mahmoud Trezeguet"],
-  "Iran": ["Mehdi Taremi","Sardar Azmoun","Alireza Jahanbakhsh","Saman Ghoddos","Ali Gholizadeh","Shahab Zahedi","Karim Ansarifard","Ahmad Noorollahi","Saeid Ezatolahi","Milad Mohammadi","Ehsan Hajsafi","Allahyar Sayyadmanesh","Omid Noorafkan","Shoja Khalilzadeh","Reza Shekari"],
-  "New Zealand": ["Chris Wood","Matt Garbett","Liberato Cacace","Marco Rojas","Elijah Just","Ben Waine","Joe Bell","Marko Stamenic","Clayton Lewis","Alex Greive","Sarpreet Singh","Tim Payne","Nando Pijnaker","Tommy Smith","Michael Woud"],
-  "Spain": ["Lamine Yamal","Pedri","Nicolás Williams","Dani Olmo","Álvaro Morata","Ferran Torres","Gavi","Mikel Oyarzabal","Fabian Ruiz","Rodri","Mikel Merino","Joselu","Ayoze Pérez","Alejandro Baena","Pau Cubarsí"],
-  "Cape Verde": ["Ryan Mendes","Garry Rodrigues","Jamiro Monteiro","Kenny Rocha Santos","Julio Tavares","Stopira","Dylan Tavares","Lisandro Semedo","Jovane Cabral","Willy Semedo","Roberto Lopes","Nuno Borges","Gilson Benchimol","Steven Fortes","Patrick Andrade"],
-  "Saudi Arabia": ["Salem Al-Dawsari","Firas Al-Buraikan","Saleh Al-Shehri","Mohammed Al-Dawsari","Sami Al-Najei","Abdullah Al-Hamdan","Abdulrahman Ghareeb","Hattan Bahebri","Ali Al-Bulayhi","Mohammed Al-Breik","Yasser Al-Shahrani","Nasser Al-Dawsari","Ayman Yahya","Mohammed Kanno","Hassan Kadesh"],
-  "Uruguay": ["Darwin Núñez","Federico Valverde","Facundo Torres","Nicolás de la Cruz","Rodrigo Bentancur","Mathías Olivera","Agustín Canobbio","Maximiliano Araújo","Luciano Rodríguez","Facundo Pellistri","Ronald Araújo","José María Giménez","Manuel Ugarte","Giorgian De Arrascaeta","Agustín Álvarez Martínez"],
-  "France": ["Kylian Mbappé","Marcus Thuram","Ousmane Dembélé","Antoine Griezmann","Randal Kolo Muani","Bradley Barcola","Eduardo Camavinga","Aurélien Tchouaméni","Warren Zaïre-Emery","Kingsley Coman","Christopher Nkunku","Michael Olise","William Saliba","Adrien Rabiot","Désiré Doué"],
-  "Senegal": ["Nicolas Jackson","Sadio Mané","Ismaïla Sarr","Iliman Ndiaye","Boulaye Dia","Habib Diarra","Pape Matar Sarr","Idrissa Gueye","Krepin Diatta","Kalidou Koulibaly","Lamine Camara","Abdallah Sima","Cheikhou Kouyaté","Nampalys Mendy","Abdoulaye Seck"],
-  "Iraq": ["Mohanad Ali","Amjad Attwan","Bashar Resan","Humam Tariq","Ali Adnan","Ahmed Ibrahim","Hussein Ali","Aihem Auda","Ameen Mohammed","Osama Rashid","Mustafa Nadhim","Saad Abdulamir","Hasan Abdulkareem","Yousif Abed","Ahmed Yasin"],
-  "Norway": ["Erling Haaland","Martin Ødegaard","Alexander Sørloth","Antonio Nusa","Oscar Bobb","Sander Berge","Kristian Thorstvedt","Fredrik Aursnes","Jens Petter Hauge","Mohamed Elyounoussi","Patrick Berg","Ola Solbakken","Mats Møller Dæhli","Birger Meling","David Møller Wolfe"],
-  "Argentina": ["Lionel Messi","Julián Álvarez","Lautaro Martínez","Alejandro Garnacho","Rodrigo De Paul","Alexis Mac Allister","Paulo Dybala","Nicolás González","Enzo Fernández","Giovani Lo Celso","Thiago Almada","Leandro Paredes","Ángel Correa","Valentín Castellanos","Valentín Barco"],
-  "Algeria": ["Riyad Mahrez","Ismaël Bennacer","Amine Gouiri","Mohamed Amoura","Youcef Atal","Houssem Aouar","Aissa Mandi","Sofiane Feghouli","Baghdad Bounedjah","Said Benrahma","Adam Zorgane","Andy Delort","Yacine Brahimi","Ramy Bensebaini","Farès Chaïbi"],
-  "Austria": ["Marcel Sabitzer","Christoph Baumgartner","Marko Arnautovic","Michael Gregoritsch","Patrick Wimmer","Konrad Laimer","Nicolas Seiwald","Florian Grillitsch","Alexander Prass","Kevin Danso","Maximilian Entrup","Romano Schmid","Phillipp Mwene","Flavius Daniliuc","Matthias Seidl"],
-  "Jordan": ["Musa Al-Taamari","Yazan Al-Naimat","Hamza Al-Dardour","Baha' Faisal","Yazan Al-Arab","Mousa Tamari","Ahmad Saleh","Nour El-Rawabdeh","Al-Motaz Abdallah","Mohammad Abu Zema","Abdullah Nasib","Yousef Al-Rawashdeh","Salem Al-Ajalin","Ehsan Haddad","Mohammad Rashdan"],
-  "Portugal": ["Cristiano Ronaldo","Bruno Fernandes","Rafael Leão","Bernardo Silva","Diogo Jota","Gonçalo Ramos","Pedro Neto","João Félix","Vitinha","Francisco Conceição","João Neves","Rúben Neves","Florentino Luís","António Silva","Nuno Mendes"],
-  "DR Congo": ["Dodi Lukebakio","Jackson Muleka","Théo Bongonda","Chancel Mbemba","Arthur Masuaku","Neeskens Kebano","Samuel Bastien","Merveille Bope","Jonathan Bolingi","Cédric Bakambu","Chadrac Akolo","Jean-Marc Makusu","Silas Nsimba","Glody Likonza","Emmanuel Leko"],
-  "Uzbekistan": ["Eldor Shomurodov","Abbosbek Fayzullaev","Jaloliddin Masharipov","Dostonbek Khamdamov","Otabek Shukurov","Khojimat Erkinov","Bobur Abdixoliqov","Oston Urunov","Islom Tukhtakhodjaev","Odiljon Hamrobekov","Husniddin Aliqulov","Azizbek Turgunboev","Jasurbek Yakhshiboev","Khurshid Tursunov","Abdurauf Buriev"],
-  "Colombia": ["Luis Díaz","Jhon Durán","Rafael Santos Borré","James Rodríguez","Richard Ríos","Jhon Arias","Jorge Carrascal","Juan Quintero","Juan Cuadrado","Yaser Asprilla","Miguel Borja","Mateus Uribe","Jefferson Lerma","Luis Sinisterra","Daniel Muñoz"],
-  "England": ["Harry Kane","Jude Bellingham","Bukayo Saka","Phil Foden","Cole Palmer","Ollie Watkins","Anthony Gordon","Eberechi Eze","Declan Rice","Trent Alexander-Arnold","Marcus Rashford","Jarrod Bowen","Morgan Gibbs-White","Kobbie Mainoo","Levi Colwill"],
-  "Croatia": ["Luka Modrić","Andrej Kramarić","Mateo Kovačić","Mario Pašalić","Lovro Majer","Ante Budimir","Luka Sučić","Martin Baturina","Josip Stanišić","Mislav Oršić","Bruno Petković","Nikola Vlašić","Igor Matanović","Joško Gvardiol","Ivan Perišić"],
-  "Ghana": ["Mohammed Kudus","Inaki Williams","Jordan Ayew","Antoine Semenyo","Ernest Nuamah","Thomas Partey","Osman Bukari","Ibrahim Sadiq","Abdul Fatawu Issahaku","Kamaldeen Sulemana","Mohammed Salisu","Daniel-Kofi Kyereh","Elisha Owusu","Alexander Djiku","Tariqe Fosu-Henry"],
-  "Panama": ["José Fajardo","Ismael Díaz","César Yanis","Adalberto Carrasquilla","Édgar Bárcenas","Andrés Andrade","Freddy Góndola","Eric Davis","Michael Amir Murillo","Rolando Blackburn","Gabriel Torres","Alberto Quintero","Abdiel Ayarza","Omar Browne","José Luis Rodríguez"],
-};
-
 const ALL_TEAMS = Object.values(TEAMS).flat();
+const PLAYER_TEAMS = ALL_TEAMS.filter((team) => PLAYERS[team]?.length);
+
+function renderPlayerOptGroups(teams) {
+  return teams
+    .filter((team) => PLAYERS[team]?.length)
+    .map((team) => (
+      <optgroup key={team} label={team}>
+        {PLAYERS[team].map((player) => (
+          <option key={`${team}|${player}`} value={`${team}|${player}`}>
+            {player}
+          </option>
+        ))}
+      </optgroup>
+    ));
+}
 
 const GROUP_MATCHES = Object.entries(TEAMS).flatMap(([group, teams]) => [
   { group, home: teams[0], away: teams[1] },
@@ -570,6 +534,7 @@ const css = `
   .lp-auth-tab:hover { color: #aaa; }
   .lp-auth-tab.active { color: ${COLORS.gold}; border-bottom-color: ${COLORS.gold}; }
   .lp-auth-error { border: 1px solid rgba(229,115,115,0.35); background: rgba(229,115,115,0.08); color: #ef9a9a; font-size: 0.74rem; line-height: 1.45; padding: 9px 10px; margin: 0 0 12px; font-family: 'Noto Sans', sans-serif; }
+  .lp-auth-info { border: 1px solid rgba(76,175,80,0.28); background: rgba(76,175,80,0.08); color: #a5d6a7; font-size: 0.74rem; line-height: 1.45; padding: 9px 10px; margin: 0 0 12px; font-family: 'Noto Sans', sans-serif; }
   .lp-auth-hint { font-size: 0.72rem; color: #666; margin-top: 6px; line-height: 1.45; font-family: 'Noto Sans', sans-serif; }
   .lp-auth-link { background: none; border: none; color: #888; font-size: 0.72rem; cursor: pointer; text-decoration: underline; margin-top: 10px; padding: 0; font-family: inherit; display: inline; }
   .lp-auth-link:hover { color: ${COLORS.gold}; }
@@ -860,24 +825,35 @@ function SignupScreen({
     password2: "",
   });
   const [busy, setBusy] = useState(false);
-  const [formError, setFormError] = useState("");
+  const [formNotice, setFormNotice] = useState(null);
+  const setError = (text) => setFormNotice({ type: "error", text });
+  const setInfo = (text) => setFormNotice({ type: "info", text });
+  const clearNotice = () => setFormNotice(null);
   const set = (k, v) => {
-    setFormError("");
+    clearNotice();
     setForm((f) => ({ ...f, [k]: v }));
   };
   const validEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+  useEffect(() => {
+    if (submissionClosed && authTab !== "signin") {
+      setAuthTab("signin");
+      clearNotice();
+    }
+  }, [submissionClosed, authTab]);
 
   const scrollToSignup = () => {
     document.getElementById("lp-signup")?.scrollIntoView({ behavior: "smooth" });
   };
 
   const handleSignUp = async () => {
-    setFormError("");
-    if (!form.name?.trim()) return setFormError("Enter your full name to create your account.");
-    if (!form.email?.trim()) return setFormError("Enter your email address.");
-    if (!validEmail(form.email.trim())) return setFormError("Enter a valid email address.");
-    if (!form.password || form.password.length < 6) return setFormError("Use a password with at least 6 characters.");
-    if (form.password !== form.password2) return setFormError("The two passwords do not match.");
+    clearNotice();
+    if (submissionClosed) return setError("Entries are closed. Existing players can still sign in.");
+    if (!form.name?.trim()) return setError("Enter your full name to create your account.");
+    if (!form.email?.trim()) return setError("Enter your email address.");
+    if (!validEmail(form.email.trim())) return setError("Enter a valid email address.");
+    if (!form.password || form.password.length < 6) return setError("Use a password with at least 6 characters.");
+    if (form.password !== form.password2) return setError("The two passwords do not match.");
     setBusy(true);
     try {
       const result = await onPasswordSignUp({
@@ -891,31 +867,37 @@ function SignupScreen({
       if (result?.switchToSignIn) {
         setAuthTab("signin");
       }
+      if (result?.error) setError(result.error);
+      else if (result?.info) setInfo(result.info);
     } finally {
       setBusy(false);
     }
   };
 
   const handleSignIn = async () => {
-    setFormError("");
-    if (!form.email?.trim()) return setFormError("Enter your email address.");
-    if (!validEmail(form.email.trim())) return setFormError("Enter a valid email address.");
-    if (!form.password) return setFormError("Enter your password.");
+    clearNotice();
+    if (!form.email?.trim()) return setError("Enter your email address.");
+    if (!validEmail(form.email.trim())) return setError("Enter a valid email address.");
+    if (!form.password) return setError("Enter your password.");
     setBusy(true);
     try {
-      await onPasswordSignIn(form.email.trim(), form.password);
+      const result = await onPasswordSignIn(form.email.trim(), form.password);
+      if (result?.error) setError(result.error);
+      else if (result?.info) setInfo(result.info);
     } finally {
       setBusy(false);
     }
   };
 
   const handleForgot = async () => {
-    setFormError("");
-    if (!form.email?.trim()) return setFormError("Enter your email address first, then use Forgot password.");
-    if (!validEmail(form.email.trim())) return setFormError("Enter a valid email address first, then use Forgot password.");
+    clearNotice();
+    if (!form.email?.trim()) return setError("Enter your email address first, then use Forgot password.");
+    if (!validEmail(form.email.trim())) return setError("Enter a valid email address first, then use Forgot password.");
     setBusy(true);
     try {
-      await onForgotPassword(form.email.trim());
+      const result = await onForgotPassword(form.email.trim());
+      if (result?.error) setError(result.error);
+      else if (result?.info) setInfo(result.info);
     } finally {
       setBusy(false);
     }
@@ -1234,7 +1216,7 @@ function SignupScreen({
             ? "This entry window has ended."
             : "Join the prediction league in under a minute. Pay after you've made all your predictions."}
         </div>
-        {submissionClosed ? (
+        {submissionClosed && !isSupabaseConfigured ? (
           <div className="lp-signup-closed">
             <div className="lp-signup-closed-title">Entries closed</div>
             <div className="lp-signup-closed-sub">
@@ -1291,20 +1273,25 @@ function SignupScreen({
         ) : (
           <div className="lp-signup-form">
             <div className="lp-auth-tabs" role="tablist" aria-label="Sign up options">
-              <button type="button" role="tab" aria-selected={authTab === "signup"} className={`lp-auth-tab${authTab === "signup" ? " active" : ""}`} onClick={() => { setFormError(""); setAuthTab("signup"); }}>
+              {!submissionClosed && (
+                <button type="button" role="tab" aria-selected={authTab === "signup"} className={`lp-auth-tab${authTab === "signup" ? " active" : ""}`} onClick={() => { clearNotice(); setAuthTab("signup"); }}>
                 Create account
-              </button>
-              <button type="button" role="tab" aria-selected={authTab === "signin"} className={`lp-auth-tab${authTab === "signin" ? " active" : ""}`} onClick={() => { setFormError(""); setAuthTab("signin"); }}>
+                </button>
+              )}
+              <button type="button" role="tab" aria-selected={authTab === "signin"} className={`lp-auth-tab${authTab === "signin" ? " active" : ""}`} onClick={() => { clearNotice(); setAuthTab("signin"); }}>
                 Sign in
               </button>
             </div>
-            {formError && (
-              <div className="lp-auth-error" role="alert">
-                {formError}
+            {submissionClosed && (
+              <p className="lp-auth-note">Entries are closed. Existing players can still sign in to view their predictions.</p>
+            )}
+            {formNotice?.text && (
+              <div className={formNotice.type === "error" ? "lp-auth-error" : "lp-auth-info"} role={formNotice.type === "error" ? "alert" : "status"}>
+                {formNotice.text}
               </div>
             )}
 
-            {authTab === "signup" && (
+            {!submissionClosed && authTab === "signup" && (
               <>
                 <div className="form-field">
                   <label>Full name</label>
@@ -1333,13 +1320,13 @@ function SignupScreen({
                   disabled={busy}
                   onClick={handleSignUp}
                 >
-                  {busy ? "Creating account…" : "Create account & start predicting →"}
+                  {busy ? "Creating account…" : "Sign up & start predicting →"}
                 </button>
                 <p className="lp-auth-hint">After sign-up you can save predictions to your account. You&apos;ll pay the £10 entry fee when you&apos;re ready to lock in.</p>
               </>
             )}
 
-            {authTab === "signin" && (
+            {(authTab === "signin" || submissionClosed) && (
               <>
                 <div className="form-field">
                   <label>Email address</label>
@@ -1461,17 +1448,7 @@ function MatchesScreen({ preds, setPreds, results, readOnly }) {
                   <span className="scorer-label">⚽ Anytime scorer:</span>
                   <select className="styled-select" value={p.scorer || ""} onChange={e => setMatchPred(key, "scorer", e.target.value)} aria-label={`Anytime goalscorer for ${m.home} vs ${m.away}`} disabled={readOnly}>
                     <option value="">— Pick a player —</option>
-                    {[m.home, m.away].map(team => {
-                      const teamPlayers = PLAYERS[team] || [];
-                      if (!teamPlayers.length) return null;
-                      return (
-                        <optgroup key={team} label={team}>
-                          {teamPlayers.map((pl, i) => (
-                            <option key={i} value={`${team}|${pl}`}>{pl}</option>
-                          ))}
-                        </optgroup>
-                      );
-                    })}
+                    {renderPlayerOptGroups([m.home, m.away])}
                   </select>
                 </div>
                 <div className="actual-result">
@@ -1674,13 +1651,7 @@ function OutrightsScreen({ preds, setPreds, readOnly }) {
                     ))
                   : kind === "team" || (!kind && !playerKinds.has(key))
                     ? ALL_TEAMS.filter(t => !t.startsWith("UEFA") && !t.startsWith("IC")).map(t => <option key={t} value={t}>{t}</option>)
-                    : Object.entries(PLAYERS).filter(([t]) => !t.startsWith("UEFA") && !t.startsWith("IC")).map(([t, players]) => (
-                      <optgroup key={t} label={t}>
-                        {players.map((pl, i) => (
-                          <option key={i} value={`${t}|${pl}`}>{pl}</option>
-                        ))}
-                      </optgroup>
-                    ))}
+                    : renderPlayerOptGroups(PLAYER_TEAMS)}
               </select>
             </div>
           );
@@ -2107,8 +2078,6 @@ export default function App() {
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [deadlineTick, setDeadlineTick] = useState(0);
   const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
-  /** When true, initial auth bootstrap must not call setScreen("signup") — it can race after sign-in and undo navigation. */
-  const suppressAuthBootstrapSignupRef = useRef(false);
 
   useEffect(() => {
     const id = setInterval(() => setDeadlineTick((t) => t + 1), 1000);
@@ -2143,6 +2112,15 @@ export default function App() {
     let cancelled = false;
     (async () => {
       try {
+        const params = new URLSearchParams(window.location.search);
+        const forceScreen = params.get("screen");
+        if (forceScreen === "matches" && !cancelled) {
+          setScreen("matches");
+          persistLocal(preds, "matches");
+          params.delete("screen");
+          const nextSearch = params.toString();
+          window.history.replaceState({}, "", `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`);
+        }
         let localUpdatedAt = null;
         const raw = localStorage.getItem(STORAGE_KEY);
         if (raw) {
@@ -2168,11 +2146,8 @@ export default function App() {
             if (!cancelled && prof) setProfile(prof);
             if (!cancelled && !prof) {
               setNeedsProfileCompletion(true);
-              // Do not send the user back to signup if they just signed in while this
-              // slow bootstrap was in flight — that produced a successful token but no redirect.
-              if (!suppressAuthBootstrapSignupRef.current) {
-                setScreen("signup");
-              }
+              // A profile row can lag behind the auth session during sign-up.
+              // Stay on the current screen and let the explicit auth handlers decide navigation.
             } else if (!cancelled && prof?.name && prof?.email) {
               setScreen((s) => (s === "signup" ? "matches" : s));
             }
@@ -2190,8 +2165,6 @@ export default function App() {
         }
       } catch (e) {
         console.warn("Load predictions:", e);
-      } finally {
-        if (!cancelled) suppressAuthBootstrapSignupRef.current = false;
       }
     })();
     return () => {
@@ -2321,29 +2294,38 @@ export default function App() {
     setTimeout(() => setToast(null), 2500);
   };
 
-  const finalizeEntryAfterAuth = async (form) => {
-    if (Date.now() >= getSubmissionDeadlineMs(results)) {
+  const enterPredictionsAfterAuth = ({ allowAfterDeadline = false } = {}) => {
+    if (!allowAfterDeadline && Date.now() >= getSubmissionDeadlineMs(results)) {
       showToast("Submissions are closed — new entries are not accepted.");
-      return;
+      return false;
     }
     setScreen("matches");
     persistLocal(preds, "matches");
+    return true;
+  };
+
+  const syncEntryAfterAuth = async (form) => {
     if (!isSupabaseConfigured) return;
-    const profResult = await upsertProfile({
-      name: form.name,
-      email: form.email,
-      username: form.username || `user_${Date.now()}`,
-    });
-    if (!profResult.ok) showToast(`Profile sync: ${profResult.error || "unavailable"}`);
-    const r = await upsertPredictions(preds, {
-      name: form.name,
-      email: form.email,
-      username: form.username || "",
-    });
-    if (!r.ok) showToast(`Predictions sync: ${r.error || "unavailable"}`);
-    const prof = await fetchProfile();
-    if (prof) setProfile(prof);
-    sendEmail(form.email, "welcome", { name: form.name }).catch(() => {});
+    try {
+      const ensured = await ensureProfileFromAuthSession();
+      if (ensured.ok && ensured.profile) {
+        setProfile(ensured.profile);
+        setNeedsProfileCompletion(!ensured.profile.name || !ensured.profile.email);
+        if (ensured.warning) showToast(ensured.warning);
+      } else {
+        showToast(ensured.error || "Account created, but your profile is still syncing. Try saving again in a moment.");
+      }
+      const r = await upsertPredictions(preds, {
+        name: form.name,
+        email: form.email,
+        username: form.username || "",
+      });
+      if (!r.ok) showToast(`Predictions sync: ${r.error || "unavailable"}`);
+      sendEmail(form.email, "welcome", { name: form.name }).catch(() => {});
+    } catch (e) {
+      console.warn("After sign-up:", e);
+      showToast("Account created — you can start predictions. Refresh if your profile does not appear.");
+    }
   };
 
   const handleLocalOnlyComplete = (form) => {
@@ -2357,6 +2339,9 @@ export default function App() {
   };
 
   const handlePasswordSignUp = async (form) => {
+    if (Date.now() >= getSubmissionDeadlineMs(results)) {
+      return { ok: false, error: "Entries are closed. Existing players can still sign in.", switchToSignIn: true };
+    }
     const r = await signUpWithPassword({
       email: form.email,
       password: form.password,
@@ -2366,31 +2351,35 @@ export default function App() {
     if (!r.ok) {
       showToast(r.error);
       if (r.errorCode === "user_already_exists") {
-        return { switchToSignIn: true };
+        return { ok: false, error: r.error, switchToSignIn: true };
       }
-      return;
+      return { ok: false, error: r.error };
     }
-    if (r.session) {
-      suppressAuthBootstrapSignupRef.current = true;
-      await finalizeEntryAfterAuth(form);
-      setNeedsProfileCompletion(false);
-    } else {
-      showToast(
-        "Check your inbox and tap the confirmation link, then sign in below. We'll set up your league profile automatically.",
-      );
+    if (r.needsEmailConfirmation) {
+      const info = r.message || "Check your email to confirm your account, then sign in.";
+      showToast("Check your email to confirm your account.");
+      return { ok: true, info, switchToSignIn: true };
     }
+    let session = r.session || (await ensureSupabaseSession());
+    if (!session) {
+      const error = "Account created, but we could not start your session. Sign in to continue.";
+      showToast(error);
+      return { ok: false, error, switchToSignIn: true };
+    }
+    if (!enterPredictionsAfterAuth()) return { ok: false, error: "Submissions are closed — new entries are not accepted." };
+    setNeedsProfileCompletion(false);
+    void syncEntryAfterAuth(form);
+    return { ok: true };
   };
 
   const handlePasswordSignIn = async (email, password) => {
     const r = await signInWithPassword({ email, password });
     if (!r.ok) {
       showToast(r.error);
-      return;
+      return { ok: false, error: r.error };
     }
-    suppressAuthBootstrapSignupRef.current = true;
     // Navigate immediately so a slow profiles / wc_predictions fetch cannot block the UI
-    setScreen("matches");
-    persistLocal(preds, "matches");
+    enterPredictionsAfterAuth({ allowAfterDeadline: true });
     try {
       const row = await fetchPredictionsRow();
       if (row?.predictions && typeof row.predictions === "object") {
@@ -2406,10 +2395,12 @@ export default function App() {
           showToast("Your account had no league profile row — we created one from your sign-in email.");
         } else if (incomplete) {
           showToast("Signed in — please complete your profile to submit predictions.");
+          setScreen("signup");
         }
       } else {
         setProfile(null);
         setNeedsProfileCompletion(true);
+        setScreen("signup");
         showToast(
           ensured.error
             ? `Signed in — profile could not be saved: ${ensured.error}`
@@ -2421,6 +2412,7 @@ export default function App() {
       setNeedsProfileCompletion(true);
       showToast("Signed in — please refresh if your predictions do not appear.");
     }
+    return { ok: true };
   };
 
   const handleCompleteProfile = async ({ name, username }) => {
@@ -2429,26 +2421,27 @@ export default function App() {
       showToast("Not signed in");
       return;
     }
-    if (Date.now() >= getSubmissionDeadlineMs(results)) {
-      showToast("Submissions are closed.");
-      return;
-    }
     const profResult = await upsertProfile({
       name,
       email: session.user.email,
-      username: username || `user_${Date.now()}`,
+      username,
     });
     if (!profResult.ok) {
       showToast(profResult.error);
       return;
     }
-    const r = await upsertPredictions(preds, {
-      name,
-      email: session.user.email,
-      username: username || "",
-    });
-    if (!r.ok) showToast(`Predictions: ${r.error}`);
-    const prof = await fetchProfile();
+    if (profResult.warning) showToast(profResult.warning);
+    if (Date.now() < getSubmissionDeadlineMs(results)) {
+      const r = await upsertPredictions(preds, {
+        name,
+        email: session.user.email,
+        username: username || "",
+      });
+      if (!r.ok) showToast(`Predictions: ${r.error}`);
+    } else {
+      showToast("Profile saved. Predictions remain locked because entries are closed.");
+    }
+    const prof = profResult.profile || (await fetchProfile());
     if (prof) setProfile(prof);
     setNeedsProfileCompletion(false);
     setScreen("matches");
@@ -2458,8 +2451,13 @@ export default function App() {
 
   const handleForgotPassword = async (email) => {
     const r = await requestPasswordReset(email);
-    if (!r.ok) showToast(r.error);
-    else showToast("Check your email for the password reset link.");
+    if (!r.ok) {
+      showToast(r.error);
+      return { ok: false, error: r.error };
+    }
+    const info = "Check your email for the password reset link.";
+    showToast(info);
+    return { ok: true, info };
   };
 
   const handlePayment = async () => {

@@ -13,6 +13,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import App from "../App.jsx";
+import { PLAYERS } from "../data/players";
 
 // ─── Module mocks ─────────────────────────────────────────────────────────────
 
@@ -31,6 +32,7 @@ vi.mock("../lib/supabase.js", () => ({
   signUpWithPassword: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
   signInWithPassword: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
   requestPasswordReset: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
+  ensureProfileFromAuthSession: vi.fn().mockResolvedValue({ ok: false, profile: null }),
 }));
 
 vi.mock("../lib/api-football.js", () => ({
@@ -81,9 +83,10 @@ afterEach(() => {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const renderApp = async () => {
-  render(<App />);
+  const view = render(<App />);
   // Wait for the initial localStorage effect to resolve
   await waitFor(() => {}, { timeout: 100 });
+  return view;
 };
 
 // ─── Pre-deadline behaviour ───────────────────────────────────────────────────
@@ -122,6 +125,45 @@ describe("Pre-deadline — entries open", () => {
     await waitFor(() => {
       expect(screen.queryByText(/submissions closed/i)).not.toBeInTheDocument();
     });
+  });
+});
+
+describe("Player dropdowns", () => {
+  beforeEach(() => {
+    vi.setSystemTime(BEFORE_DEADLINE);
+    seedLocalStorage();
+  });
+
+  it("limits match scorer players to the two nations in the fixture", async () => {
+    await renderApp();
+
+    const scorerSelect = await screen.findByRole("combobox", {
+      name: /anytime goalscorer for mexico vs south africa/i,
+    });
+    const playerValues = Array.from(scorerSelect.options)
+      .map((option) => option.value)
+      .filter(Boolean);
+
+    expect(playerValues).toHaveLength(PLAYERS.Mexico.length + PLAYERS["South Africa"].length);
+    expect(playerValues.every((value) => value.startsWith("Mexico|") || value.startsWith("South Africa|"))).toBe(true);
+    expect(playerValues).not.toContain("England|Harry Kane");
+  });
+
+  it("groups all-nation player awards by nation", async () => {
+    await renderApp();
+
+    fireEvent.click(screen.getByRole("tab", { name: /outrights/i }));
+
+    const goldenBootSelect = await screen.findByRole("combobox", { name: /golden boot/i });
+    const playerValues = Array.from(goldenBootSelect.options)
+      .map((option) => option.value)
+      .filter(Boolean);
+    const nationLabels = Array.from(goldenBootSelect.querySelectorAll("optgroup"), (group) => group.label);
+    const allPlayerCount = Object.values(PLAYERS).reduce((total, players) => total + players.length, 0);
+
+    expect(playerValues).toHaveLength(allPlayerCount);
+    expect(nationLabels).toHaveLength(48);
+    expect(nationLabels).toEqual(expect.arrayContaining(["Mexico", "South Africa", "England"]));
   });
 });
 
