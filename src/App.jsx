@@ -15,6 +15,7 @@ import {
   signUpWithPassword,
   signInWithPassword,
   requestPasswordReset,
+  updatePassword,
   ensureProfileFromAuthSession,
 } from "./lib/supabase";
 import { isApiFootballConfigured, fetchAllResults, hasLiveMatches, getMatchResultForTeams } from "./lib/api-football";
@@ -40,6 +41,27 @@ function getPotBreakdown(entryCount) {
   const costAmount = grossPot * (COST_PERCENT / 100);
   const prizePot = Math.max(0, grossPot - costAmount);
   return { grossPot, costAmount, prizePot };
+}
+
+function hasPasswordRecoveryMarker() {
+  if (typeof window === "undefined") return false;
+  const search = new URLSearchParams(window.location.search);
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  return (
+    search.has("reset-password") ||
+    search.get("type") === "recovery" ||
+    hash.get("type") === "recovery"
+  );
+}
+
+function clearAuthUrlParams() {
+  if (typeof window === "undefined") return;
+  const url = new URL(window.location.href);
+  for (const key of ["code", "type", "token_hash", "reset-password", "error", "error_code", "error_description"]) {
+    url.searchParams.delete(key);
+  }
+  url.hash = "";
+  window.history.replaceState({}, "", `${url.pathname}${url.search}`);
 }
 
 // Current configured 2026 World Cup groups for the prediction league.
@@ -830,7 +852,9 @@ function SignupScreen({
   onPasswordSignUp,
   onPasswordSignIn,
   onForgotPassword,
+  onPasswordUpdate,
   onLocalComplete,
+  passwordRecovery,
   submissionClosed,
   countdownLabel,
   deadlineLabel,
@@ -918,6 +942,23 @@ function SignupScreen({
       const result = await onForgotPassword(form.email.trim());
       if (result?.error) setError(result.error);
       else if (result?.info) setInfo(result.info);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handlePasswordUpdate = async () => {
+    clearNotice();
+    if (!form.password || form.password.length < 6) return setError("Use a password with at least 6 characters.");
+    if (form.password !== form.password2) return setError("The two passwords do not match.");
+    setBusy(true);
+    try {
+      const result = await onPasswordUpdate(form.password);
+      if (result?.error) setError(result.error);
+      else {
+        setForm((f) => ({ ...f, password: "", password2: "" }));
+        setInfo(result?.info || "Password updated.");
+      }
     } finally {
       setBusy(false);
     }
@@ -1259,7 +1300,28 @@ function SignupScreen({
             ? "This entry window has ended."
             : "Join the prediction league in under a minute. Pay after you've made all your predictions."}
         </div>
-        {submissionClosed && !isSupabaseConfigured ? (
+        {passwordRecovery && isSupabaseConfigured ? (
+          <div className="lp-signup-form">
+            <p className="lp-auth-note">Enter a new password for your account.</p>
+            {formNotice?.text && (
+              <div className={formNotice.type === "error" ? "lp-auth-error" : "lp-auth-info"} role={formNotice.type === "error" ? "alert" : "status"}>
+                {formNotice.text}
+              </div>
+            )}
+            <div className="form-field">
+              <label>New password</label>
+              <input className="form-input" type="password" placeholder="At least 6 characters" value={form.password} onChange={(e) => set("password", e.target.value)} aria-label="New password" autoComplete="new-password" />
+            </div>
+            <div className="form-field">
+              <label>Confirm new password</label>
+              <input className="form-input" type="password" placeholder="Repeat password" value={form.password2} onChange={(e) => set("password2", e.target.value)} aria-label="Confirm new password" autoComplete="new-password" />
+            </div>
+            <button type="button" className="btn-primary" style={{ marginTop: 8 }} disabled={busy} onClick={handlePasswordUpdate}>
+              {busy ? "Updating password..." : "Update password"}
+            </button>
+            <p className="lp-auth-hint">After updating your password, you will continue to your predictions.</p>
+          </div>
+        ) : submissionClosed && !isSupabaseConfigured ? (
           <div className="lp-signup-closed">
             <div className="lp-signup-closed-title">Entries closed</div>
             <div className="lp-signup-closed-sub">
@@ -2118,6 +2180,7 @@ export default function App() {
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [deadlineTick, setDeadlineTick] = useState(0);
   const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
+  const [passwordRecovery, setPasswordRecovery] = useState(() => hasPasswordRecoveryMarker());
   const [deadlineSettings, setDeadlineSettings] = useState(null);
 
   useEffect(() => {
@@ -2166,8 +2229,14 @@ export default function App() {
     (async () => {
       try {
         const params = new URLSearchParams(window.location.search);
+        const isPasswordRecovery = hasPasswordRecoveryMarker();
+        if (isPasswordRecovery && !cancelled) {
+          setPasswordRecovery(true);
+          setNeedsProfileCompletion(false);
+          setScreen("signup");
+        }
         const forceScreen = params.get("screen");
-        if (forceScreen === "matches" && !cancelled) {
+        if (!isPasswordRecovery && forceScreen === "matches" && !cancelled) {
           setScreen("matches");
           persistLocal(preds, "matches");
           params.delete("screen");
@@ -2182,7 +2251,7 @@ export default function App() {
           if (local?.predictions && typeof local.predictions === "object" && !cancelled) {
             setPreds(local.predictions);
           }
-          if (local?.entered && !cancelled) {
+          if (!isPasswordRecovery && local?.entered && !cancelled) {
             setScreen(local.screen || "matches");
           }
         }
@@ -2201,7 +2270,7 @@ export default function App() {
               setNeedsProfileCompletion(true);
               // A profile row can lag behind the auth session during sign-up.
               // Stay on the current screen and let the explicit auth handlers decide navigation.
-            } else if (!cancelled && prof?.name && prof?.email) {
+            } else if (!isPasswordRecovery && !cancelled && prof?.name && prof?.email) {
               setScreen((s) => (s === "signup" ? "matches" : s));
             }
             const row = await fetchPredictionsRow();
@@ -2307,6 +2376,12 @@ export default function App() {
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         setCurrentUserId(session.user.id);
+        if (event === "PASSWORD_RECOVERY" || hasPasswordRecoveryMarker()) {
+          setPasswordRecovery(true);
+          setNeedsProfileCompletion(false);
+          setScreen("signup");
+          return;
+        }
         let prof = await fetchProfile();
         if (!prof) {
           const ensured = await ensureProfileFromAuthSession();
@@ -2322,6 +2397,7 @@ export default function App() {
         setCurrentUserId(null);
         setProfile(null);
         setNeedsProfileCompletion(false);
+        setPasswordRecovery(false);
         if (event === "SIGNED_OUT") {
           setScreen("signup");
         }
@@ -2513,6 +2589,19 @@ export default function App() {
     return { ok: true, info };
   };
 
+  const handleUpdatePassword = async (password) => {
+    const r = await updatePassword(password);
+    if (!r.ok) {
+      showToast(r.error);
+      return { ok: false, error: r.error };
+    }
+    setPasswordRecovery(false);
+    clearAuthUrlParams();
+    showToast("Password updated.");
+    enterPredictionsAfterAuth({ allowAfterDeadline: true });
+    return { ok: true, info: "Password updated." };
+  };
+
   const handlePayment = async () => {
     if (Date.now() >= getSubmissionDeadlineMs(results, deadlineSettings)) {
       showToast("Submissions are closed — payment is no longer available.");
@@ -2652,7 +2741,9 @@ export default function App() {
             onPasswordSignUp={handlePasswordSignUp}
             onPasswordSignIn={handlePasswordSignIn}
             onForgotPassword={handleForgotPassword}
+            onPasswordUpdate={handleUpdatePassword}
             onLocalComplete={handleLocalOnlyComplete}
+            passwordRecovery={passwordRecovery}
             submissionClosed={submissionClosed}
             countdownLabel={countdownLabel}
             deadlineLabel={deadlineLabel}

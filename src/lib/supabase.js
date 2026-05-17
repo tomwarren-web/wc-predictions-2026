@@ -72,6 +72,18 @@ function authEmailRedirectUrl() {
   return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
 
+function passwordResetRedirectUrl() {
+  const explicit = import.meta.env.VITE_AUTH_PASSWORD_RESET_REDIRECT_URL || authEmailRedirectUrl();
+  if (!explicit) return undefined;
+  try {
+    const u = new URL(explicit);
+    u.searchParams.set("reset-password", "1");
+    return u.toString();
+  } catch {
+    return explicit;
+  }
+}
+
 function cleanText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
@@ -247,7 +259,7 @@ export async function signInWithPassword({ email, password }) {
 
 export async function requestPasswordReset(email) {
   if (!supabase) return { ok: false, error: friendlyAuthMessage(null, "not_configured"), errorCode: "not_configured" };
-  const redirectTo = authEmailRedirectUrl();
+  const redirectTo = passwordResetRedirectUrl();
   const opts = redirectTo ? { redirectTo } : {};
   const { error } = await supabase.auth.resetPasswordForEmail(normalizeEmail(email), opts);
   if (error)
@@ -263,6 +275,18 @@ export async function requestPasswordReset(email) {
 // Supabase Auth owns credentials. The DB trigger creates public.profiles; the
 // client only updates editable profile fields or repairs old rows missing one.
 // Stripe webhook (checkout.session.completed) sets paid=true and locked=true.
+
+export async function updatePassword(password) {
+  if (!supabase) return { ok: false, error: friendlyAuthMessage(null, "not_configured"), errorCode: "not_configured" };
+  const { data, error } = await supabase.auth.updateUser({ password });
+  if (error)
+    return {
+      ok: false,
+      error: friendlyAuthMessage(error.message, error.code),
+      errorCode: error.code,
+    };
+  return { ok: true, user: data?.user || null };
+}
 
 export async function upsertProfile({ name, email, username }) {
   if (!supabase) return { ok: false, error: friendlyProfileMessage(null, "not_configured"), errorCode: "not_configured" };

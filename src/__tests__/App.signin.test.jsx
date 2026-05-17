@@ -5,6 +5,7 @@ import {
   ensureProfileFromAuthSession,
   fetchPredictionsRow,
   signInWithPassword,
+  updatePassword,
 } from "../lib/supabase.js";
 
 const FALLBACK_DEADLINE_MS = Date.parse("2026-06-11T21:00:00.000Z");
@@ -36,6 +37,7 @@ vi.mock("../lib/supabase.js", () => ({
   signUpWithPassword: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
   signInWithPassword: vi.fn().mockResolvedValue({ ok: true }),
   requestPasswordReset: vi.fn().mockResolvedValue({ ok: true }),
+  updatePassword: vi.fn().mockResolvedValue({ ok: true }),
   ensureProfileFromAuthSession: vi.fn().mockResolvedValue({
     ok: false,
     profile: null,
@@ -55,7 +57,9 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(BEFORE_DEADLINE);
   localStorage.clear();
+  window.history.pushState({}, "", "/");
   signInWithPassword.mockResolvedValue({ ok: true });
+  updatePassword.mockResolvedValue({ ok: true });
   fetchPredictionsRow.mockResolvedValue(null);
   ensureProfileFromAuthSession.mockResolvedValue({
     ok: false,
@@ -111,5 +115,27 @@ describe("sign-in navigation", () => {
     });
 
     resolvePredictions(null);
+  });
+
+  it("shows a password reset form from the reset email link and updates the password", async () => {
+    window.history.pushState({}, "", "/#access_token=fake-token&type=recovery");
+
+    render(<App />);
+
+    expect(await screen.findByRole("button", { name: /update password/i })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/^new password$/i), {
+      target: { value: "new-secure-password" },
+    });
+    fireEvent.change(screen.getByLabelText(/^confirm new password$/i), {
+      target: { value: "new-secure-password" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /update password/i }));
+
+    await waitFor(() => {
+      expect(updatePassword).toHaveBeenCalledWith("new-secure-password");
+      expect(screen.getByRole("tab", { name: /matches/i })).toHaveAttribute("aria-selected", "true");
+    });
+    expect(window.location.search).not.toContain("reset-password");
+    expect(window.location.hash).toBe("");
   });
 });

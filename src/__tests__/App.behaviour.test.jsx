@@ -33,6 +33,7 @@ vi.mock("../lib/supabase.js", () => ({
   signUpWithPassword: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
   signInWithPassword: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
   requestPasswordReset: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
+  updatePassword: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
   ensureProfileFromAuthSession: vi.fn().mockResolvedValue({ ok: false, profile: null }),
 }));
 
