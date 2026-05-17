@@ -26,6 +26,7 @@ vi.mock("../lib/supabase.js", () => ({
   upsertPredictions: vi.fn().mockResolvedValue({ ok: true }),
   upsertProfile: vi.fn().mockResolvedValue({ ok: true }),
   fetchProfile: vi.fn().mockResolvedValue(null),
+  fetchTournamentSettings: vi.fn().mockResolvedValue(null),
   createCheckoutSession: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
   checkPaymentStatus: vi.fn().mockResolvedValue({ paid: false }),
   sendEmail: vi.fn().mockResolvedValue({ ok: false }),
@@ -118,6 +119,43 @@ describe("Pre-deadline — entries open", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: /save predictions/i })).toBeInTheDocument();
     });
+  });
+
+  it("advances through prediction sections after saving", async () => {
+    await renderApp();
+
+    fireEvent.click(screen.getByRole("button", { name: /save predictions/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /standings/i })).toHaveAttribute("aria-selected", "true");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /save predictions/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /outrights/i })).toHaveAttribute("aria-selected", "true");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /save predictions/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /submit/i })).toHaveAttribute("aria-selected", "true");
+    });
+  });
+
+  it("lets total tournament goals be typed directly", async () => {
+    await renderApp();
+
+    fireEvent.click(screen.getByRole("tab", { name: /outrights/i }));
+    const totalGoalsInput = await screen.findByRole("spinbutton", {
+      name: /total goals in the tournament/i,
+    });
+
+    fireEvent.change(totalGoalsInput, { target: { value: "1" } });
+    expect(totalGoalsInput).toHaveValue(1);
+    fireEvent.change(totalGoalsInput, { target: { value: "14" } });
+    expect(totalGoalsInput).toHaveValue(14);
+    fireEvent.change(totalGoalsInput, { target: { value: "140" } });
+    expect(totalGoalsInput).toHaveValue(140);
+    expect(screen.queryByRole("button", { name: /decrease/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /increase/i })).not.toBeInTheDocument();
   });
 
   it("deadline banner shows countdown, not 'Submissions closed'", async () => {

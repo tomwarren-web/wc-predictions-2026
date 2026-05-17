@@ -20,7 +20,10 @@ interface HandlerDeps {
   createStripeCustomer: (profile: Record<string, unknown>) => Promise<{ id: string }>;
   createStripeSession: (customerId: string, origin: string, userId: string) => Promise<{ url: string; id: string }>;
   insertPayment: (row: Record<string, unknown>) => Promise<{ error: unknown }>;
-  updateProfileCustomerId: (userId: string, customerId: string) => Promise<void>;
+  updateProfileCustomerId: (userId: string, customerId: string) => Promise<{ error: unknown }>;
+  expireStripeSession: (sessionId: string) => Promise<void>;
+  nowMs: () => number;
+  deadlineMs: () => number;
 }
 
 async function handleCheckout(
@@ -78,12 +81,25 @@ async function handleCheckout(
     });
   }
 
+  if (deps.nowMs() >= deps.deadlineMs()) {
+    return new Response(JSON.stringify({ error: "Submissions are closed — payment is no longer available." }), {
+      status: 403,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
   const p = profile as Record<string, unknown>;
   let customerId = p.stripe_customer_id as string;
   if (!customerId) {
     const customer = await deps.createStripeCustomer(p);
     customerId = customer.id;
-    await deps.updateProfileCustomerId((user as { id: string }).id, customerId);
+    const customerUpdate = await deps.updateProfileCustomerId((user as { id: string }).id, customerId);
+    if (customerUpdate.error) {
+      return new Response(JSON.stringify({ error: "Payment setup failed before checkout. Please try again." }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
   }
 
   const payload = await req.json().catch(() => ({}));
@@ -99,13 +115,21 @@ async function handleCheckout(
   }
 
   const session = await deps.createStripeSession(customerId, origin, (user as { id: string }).id);
-  await deps.insertPayment({
+  const paymentInsert = await deps.insertPayment({
     user_id: (user as { id: string }).id,
     stripe_checkout_session_id: session.id,
     amount_pence: 1000,
     currency: "gbp",
     status: "pending",
   });
+
+  if (paymentInsert.error) {
+    await deps.expireStripeSession(session.id);
+    return new Response(JSON.stringify({ error: "Payment setup failed before checkout. Please try again." }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 
   return new Response(JSON.stringify({ url: session.url }), {
     status: 200,
@@ -125,7 +149,10 @@ const validDeps = (): HandlerDeps => ({
   createStripeCustomer: async (_profile) => ({ id: "cus_test_new" }),
   createStripeSession: async (_cid, _origin, _uid) => mockSession,
   insertPayment: async (_row) => ({ error: null }),
-  updateProfileCustomerId: async (_uid, _cid) => {},
+  updateProfileCustomerId: async (_uid, _cid) => ({ error: null }),
+  expireStripeSession: async (_sessionId) => {},
+  nowMs: () => Date.parse("2026-05-01T12:00:00.000Z"),
+  deadlineMs: () => Date.parse("2026-06-11T21:00:00.000Z"),
 });
 
 const makeRequest = (overrides: { method?: string; auth?: string; body?: unknown } = {}) =>
@@ -231,6 +258,22 @@ Deno.test("skips customer creation when stripe_customer_id already exists", asyn
   assertEquals(customerCreated, false);
 });
 
+Deno.test("customer id update failure returns 500 before Checkout Session creation", async () => {
+  let sessionCreated = false;
+  const deps = validDeps();
+  deps.updateProfileCustomerId = async (_uid, _cid) => ({ error: new Error("profile update failed") });
+  deps.createStripeSession = async (_cid, _origin, _uid) => {
+    sessionCreated = true;
+    return mockSession;
+  };
+
+  const res = await handleCheckout(makeRequest(), deps);
+  assertEquals(res.status, 500);
+  const body = await res.json();
+  assertEquals(body.error, "Payment setup failed before checkout. Please try again.");
+  assertEquals(sessionCreated, false);
+});
+
 Deno.test("inserts a pending payment row after session creation", async () => {
   const insertedRows: Record<string, unknown>[] = [];
   const deps = validDeps();
@@ -244,6 +287,37 @@ Deno.test("inserts a pending payment row after session creation", async () => {
   assertEquals(insertedRows[0].status, "pending");
   assertEquals(insertedRows[0].amount_pence, 1000);
   assertEquals(insertedRows[0].currency, "gbp");
+});
+
+Deno.test("payment row insert failure expires Checkout Session and returns 500", async () => {
+  let expiredSessionId = "";
+  const deps = validDeps();
+  deps.insertPayment = async (_row) => ({ error: new Error("database unavailable") });
+  deps.expireStripeSession = async (sessionId) => {
+    expiredSessionId = sessionId;
+  };
+
+  const res = await handleCheckout(makeRequest(), deps);
+  assertEquals(res.status, 500);
+  const body = await res.json();
+  assertEquals(body.error, "Payment setup failed before checkout. Please try again.");
+  assertEquals(expiredSessionId, mockSession.id);
+});
+
+Deno.test("payment is blocked after the server-side entry deadline", async () => {
+  let sessionCreated = false;
+  const deps = validDeps();
+  deps.nowMs = () => Date.parse("2026-06-11T21:00:00.000Z");
+  deps.createStripeSession = async (_cid, _origin, _uid) => {
+    sessionCreated = true;
+    return mockSession;
+  };
+
+  const res = await handleCheckout(makeRequest(), deps);
+  assertEquals(res.status, 403);
+  const body = await res.json();
+  assertEquals(body.error, "Submissions are closed — payment is no longer available.");
+  assertEquals(sessionCreated, false);
 });
 
 Deno.test("untrusted browser origin falls back to configured app URL", async () => {

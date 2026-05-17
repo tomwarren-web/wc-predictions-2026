@@ -48,6 +48,8 @@ export function getMatchResultForTeams(matchesMap, home, away) {
     awayTeam: away,
     homeGoals: r.awayGoals,
     awayGoals: r.homeGoals,
+    homePenaltyGoals: r.awayPenaltyGoals,
+    awayPenaltyGoals: r.homePenaltyGoals,
   };
 }
 
@@ -139,11 +141,29 @@ export function hasLiveMatches() {
 }
 
 function englandWonMatch(m) {
-  if (!m.isFinished || m.homeGoals == null || m.awayGoals == null) return false;
-  const engHome = m.homeTeam === "England";
-  if (m.homeGoals > m.awayGoals) return engHome;
-  if (m.awayGoals > m.homeGoals) return !engHome;
-  return false;
+  if (!m.isFinished) return false;
+  const winner = getMatchWinner(m);
+  if (!winner) return false;
+  return winner === "England";
+}
+
+function getMatchWinner(m) {
+  if (!m || m.homeGoals == null || m.awayGoals == null) return null;
+  if (m.homeGoals > m.awayGoals) return m.homeTeam;
+  if (m.awayGoals > m.homeGoals) return m.awayTeam;
+  if (m.status === "PEN" && m.homePenaltyGoals != null && m.awayPenaltyGoals != null) {
+    if (m.homePenaltyGoals > m.awayPenaltyGoals) return m.homeTeam;
+    if (m.awayPenaltyGoals > m.homePenaltyGoals) return m.awayTeam;
+  }
+  return null;
+}
+
+function getMatchLoser(m) {
+  const winner = getMatchWinner(m);
+  if (!winner) return null;
+  if (winner === m.homeTeam) return m.awayTeam;
+  if (winner === m.awayTeam) return m.homeTeam;
+  return null;
 }
 
 /** Map API round string + whether England won their last match to progress labels (must match UI options). */
@@ -226,6 +246,8 @@ export async function fetchAllResults() {
       awayTeam,
       homeGoals: fx.goals?.home ?? null,
       awayGoals: fx.goals?.away ?? null,
+      homePenaltyGoals: fx.score?.penalty?.home ?? null,
+      awayPenaltyGoals: fx.score?.penalty?.away ?? null,
       round: fx.league?.round || "",
       isLive,
       isFinished,
@@ -258,7 +280,7 @@ export async function fetchAllResults() {
       if (!entry) continue;
 
       for (const evt of events) {
-        if (evt.detail === "Missed Penalty") continue;
+        if (evt.detail === "Missed Penalty" || evt.detail === "Own Goal") continue;
         const team = normalizeTeamName(evt.team?.name);
         const player = evt.player?.name;
         if (team && player) {
@@ -291,21 +313,16 @@ export async function fetchAllResults() {
     const round = m.round.toLowerCase();
 
     if (round.includes("final") && !round.includes("semi") && !round.includes("quarter") && !round.includes("3rd") && !round.includes("third")) {
-      if (m.homeGoals > m.awayGoals) {
-        tournamentResults.winner = m.homeTeam;
-        tournamentResults.runnerUp = m.awayTeam;
-      } else if (m.awayGoals > m.homeGoals) {
-        tournamentResults.winner = m.awayTeam;
-        tournamentResults.runnerUp = m.homeTeam;
+      const winner = getMatchWinner(m);
+      const loser = getMatchLoser(m);
+      if (winner && loser) {
+        tournamentResults.winner = winner;
+        tournamentResults.runnerUp = loser;
       }
     }
 
     if (round.includes("3rd") || round.includes("third")) {
-      if (m.homeGoals > m.awayGoals) {
-        tournamentResults.third = m.homeTeam;
-      } else if (m.awayGoals > m.homeGoals) {
-        tournamentResults.third = m.awayTeam;
-      }
+      tournamentResults.third = getMatchWinner(m);
     }
   }
 

@@ -7,7 +7,7 @@
 -- ============================================================================
 
 -- 1. Shared deadline helper ---------------------------------------------------
--- Keep this in sync with VITE_FIRST_MATCH_KICKOFF_ISO / fallback tournament date.
+-- Migration 010 replaces this hardcoded fallback with public.app_settings.
 create or replace function public.entries_are_closed()
 returns boolean
 language sql
@@ -109,16 +109,26 @@ drop policy if exists "mp_insert_own" on public.match_predictions;
 drop policy if exists "mp_update_own" on public.match_predictions;
 drop policy if exists "mp_delete_own" on public.match_predictions;
 create policy "mp_insert_own" on public.match_predictions for insert
-  with check ((select auth.uid()) = user_id);
-create policy "mp_update_own" on public.match_predictions for update
-  using ((select auth.uid()) = user_id)
   with check (
     (select auth.uid()) = user_id
+    and not public.entries_are_closed()
+    and not exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.locked)
+  );
+create policy "mp_update_own" on public.match_predictions for update
+  using (
+    (select auth.uid()) = user_id
+    and not public.entries_are_closed()
+    and not exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.locked)
+  )
+  with check (
+    (select auth.uid()) = user_id
+    and not public.entries_are_closed()
     and not exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.locked)
   );
 create policy "mp_delete_own" on public.match_predictions for delete
   using (
     (select auth.uid()) = user_id
+    and not public.entries_are_closed()
     and not exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.locked)
   );
 
@@ -126,16 +136,26 @@ drop policy if exists "sp_insert_own" on public.standings_predictions;
 drop policy if exists "sp_update_own" on public.standings_predictions;
 drop policy if exists "sp_delete_own" on public.standings_predictions;
 create policy "sp_insert_own" on public.standings_predictions for insert
-  with check ((select auth.uid()) = user_id);
-create policy "sp_update_own" on public.standings_predictions for update
-  using ((select auth.uid()) = user_id)
   with check (
     (select auth.uid()) = user_id
+    and not public.entries_are_closed()
+    and not exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.locked)
+  );
+create policy "sp_update_own" on public.standings_predictions for update
+  using (
+    (select auth.uid()) = user_id
+    and not public.entries_are_closed()
+    and not exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.locked)
+  )
+  with check (
+    (select auth.uid()) = user_id
+    and not public.entries_are_closed()
     and not exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.locked)
   );
 create policy "sp_delete_own" on public.standings_predictions for delete
   using (
     (select auth.uid()) = user_id
+    and not public.entries_are_closed()
     and not exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.locked)
   );
 
@@ -143,16 +163,26 @@ drop policy if exists "op_insert_own" on public.outright_predictions;
 drop policy if exists "op_update_own" on public.outright_predictions;
 drop policy if exists "op_delete_own" on public.outright_predictions;
 create policy "op_insert_own" on public.outright_predictions for insert
-  with check ((select auth.uid()) = user_id);
-create policy "op_update_own" on public.outright_predictions for update
-  using ((select auth.uid()) = user_id)
   with check (
     (select auth.uid()) = user_id
+    and not public.entries_are_closed()
+    and not exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.locked)
+  );
+create policy "op_update_own" on public.outright_predictions for update
+  using (
+    (select auth.uid()) = user_id
+    and not public.entries_are_closed()
+    and not exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.locked)
+  )
+  with check (
+    (select auth.uid()) = user_id
+    and not public.entries_are_closed()
     and not exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.locked)
   );
 create policy "op_delete_own" on public.outright_predictions for delete
   using (
     (select auth.uid()) = user_id
+    and not public.entries_are_closed()
     and not exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.locked)
   );
 
@@ -160,16 +190,26 @@ drop policy if exists "statp_insert_own" on public.stat_predictions;
 drop policy if exists "statp_update_own" on public.stat_predictions;
 drop policy if exists "statp_delete_own" on public.stat_predictions;
 create policy "statp_insert_own" on public.stat_predictions for insert
-  with check ((select auth.uid()) = user_id);
-create policy "statp_update_own" on public.stat_predictions for update
-  using ((select auth.uid()) = user_id)
   with check (
     (select auth.uid()) = user_id
+    and not public.entries_are_closed()
+    and not exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.locked)
+  );
+create policy "statp_update_own" on public.stat_predictions for update
+  using (
+    (select auth.uid()) = user_id
+    and not public.entries_are_closed()
+    and not exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.locked)
+  )
+  with check (
+    (select auth.uid()) = user_id
+    and not public.entries_are_closed()
     and not exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.locked)
   );
 create policy "statp_delete_own" on public.stat_predictions for delete
   using (
     (select auth.uid()) = user_id
+    and not public.entries_are_closed()
     and not exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.locked)
   );
 
@@ -187,6 +227,7 @@ create policy "wc_predictions_insert_own_unlocked"
   on public.wc_predictions for insert
   with check (
     (select auth.uid()) = id
+    and not public.entries_are_closed()
     and not exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.locked)
   );
 
@@ -194,10 +235,12 @@ create policy "wc_predictions_update_own_unlocked"
   on public.wc_predictions for update
   using (
     (select auth.uid()) = id
+    and not public.entries_are_closed()
     and not exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.locked)
   )
   with check (
     (select auth.uid()) = id
+    and not public.entries_are_closed()
     and not exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.locked)
   );
 

@@ -1,11 +1,12 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import Stripe from "https://esm.sh/stripe@14?target=deno";
+import Stripe from "https://esm.sh/stripe@20.4.0?target=deno";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ENTRY_AMOUNT_PENCE = 1000;
 const ENTRY_CURRENCY = "gbp";
+const STRIPE_API_VERSION = "2026-02-25.clover";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -32,7 +33,7 @@ serve(async (req) => {
   }
 
   const body = await req.text();
-  const stripe = new Stripe(stripeKey, { apiVersion: "2024-04-10" });
+  const stripe = new Stripe(stripeKey, { apiVersion: STRIPE_API_VERSION });
 
   let event: Stripe.Event;
   try {
@@ -89,6 +90,14 @@ serve(async (req) => {
     }
 
     const alreadyCompleted = existingPayment.status === "completed";
+    const { data: profileBeforeLock } = await supabase
+      .from("profiles")
+      .select("email, name, paid, locked")
+      .eq("id", userId)
+      .maybeSingle();
+    const shouldSendConfirmation =
+      !alreadyCompleted || !profileBeforeLock?.paid || !profileBeforeLock?.locked;
+
     const { error: updatePaymentError } = await supabase
       .from("payments")
       .update({
@@ -114,24 +123,28 @@ serve(async (req) => {
       return json({ error: "Profile lock failed" }, 500);
     }
 
-    // Trigger payment confirmation email
-    if (!alreadyCompleted) {
+    // Trigger payment confirmation email after the profile has been locked.
+    // If a previous webhook attempt completed the payment row but failed here,
+    // this retry should still send the email once the profile is made paid+locked.
+    if (shouldSendConfirmation) {
       try {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("email, name")
-        .eq("id", userId)
-        .single();
+        const profile = profileBeforeLock?.email
+          ? profileBeforeLock
+          : (await supabase
+              .from("profiles")
+              .select("email, name")
+              .eq("id", userId)
+              .single()).data;
 
-      if (profile?.email) {
-        await supabase.functions.invoke("send-email", {
-          body: {
-            to: profile.email,
-            type: "payment_confirmation",
-            data: { name: profile.name },
-          },
-        });
-      }
+        if (profile?.email) {
+          await supabase.functions.invoke("send-email", {
+            body: {
+              to: profile.email,
+              type: "payment_confirmation",
+              data: { name: profile.name },
+            },
+          });
+        }
       } catch (emailErr) {
         console.error("Failed to send payment confirmation email:", emailErr);
       }

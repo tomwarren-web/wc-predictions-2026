@@ -8,6 +8,7 @@ import {
   upsertPredictions,
   upsertProfile,
   fetchProfile,
+  fetchTournamentSettings,
   createCheckoutSession,
   checkPaymentStatus,
   sendEmail,
@@ -24,9 +25,14 @@ import heroImg from "./assets/hero.png";
 
 const STORAGE_KEY = "wc-predictions-2026";
 const ENTRY_FEE_GBP = 10;
+const NEXT_PREDICTION_SCREEN = {
+  matches: "standings",
+  standings: "outrights",
+  outrights: "submit",
+};
 const COST_PERCENT = Math.min(
   100,
-  Math.max(0, Number(import.meta.env.VITE_COST_PERCENT || 0)),
+  Math.max(0, Number(import.meta.env.VITE_COST_PERCENT || 20)),
 );
 
 function getPotBreakdown(entryCount) {
@@ -36,7 +42,7 @@ function getPotBreakdown(entryCount) {
   return { grossPot, costAmount, prizePot };
 }
 
-// Finalised 2026 World Cup groups — all 48 teams confirmed after March 2026 playoffs
+// Current configured 2026 World Cup groups for the prediction league.
 // UEFA PO-A=Bosnia-Herzegovina, PO-B=Sweden, PO-C=Turkey, PO-D=Czech Republic
 // IC PO-1=DR Congo, IC PO-2=Iraq
 const TEAMS = {
@@ -288,12 +294,10 @@ const css = `
   .stat-card { background: #000; border-radius: 0; border: 1px solid #1e1e1e; padding: 14px; margin-bottom: 10px; }
   .stat-card label { font-size: 0.7rem; color: #888; display: block; margin-bottom: 4px; font-family: 'Barlow', sans-serif; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
   .stat-card .hint { font-size: 0.72rem; color: #444; margin-bottom: 8px; font-family: 'Noto Sans', sans-serif; }
-  .number-input-row { display: flex; align-items: center; gap: 10px; }
-  .num-input { width: 80px; text-align: center; font-size: 1.4rem; font-weight: 900; font-family: 'Barlow Condensed', sans-serif; background: #000; border: 1px solid #2a2a2a; border-radius: 0; color: ${COLORS.gold}; outline: none; padding: 8px; -moz-appearance: textfield; }
+  .number-input-row { display: flex; align-items: center; }
+  .num-input { width: min(160px, 100%); text-align: center; font-size: 1.4rem; font-weight: 900; font-family: 'Barlow Condensed', sans-serif; background: #000; border: 1px solid #2a2a2a; border-radius: 0; color: ${COLORS.gold}; outline: none; padding: 8px; -moz-appearance: textfield; }
   .num-input:focus { border-color: ${COLORS.gold}; }
   .num-input::-webkit-inner-spin-button, .num-input::-webkit-outer-spin-button { -webkit-appearance: none; }
-  .num-stepper { width: 38px; height: 38px; background: #111; border: 1px solid #2a2a2a; border-radius: 0; color: #fff; font-size: 1.2rem; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.15s; font-family: 'Barlow Condensed', sans-serif; font-weight: 900; }
-  .num-stepper:hover { background: ${COLORS.gold}; color: #000; }
 
   .lb-rank { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.2rem; width: 32px; color: #444; }
   .lb-rank.top1 { color: ${COLORS.gold}; }
@@ -442,7 +446,6 @@ const css = `
   .lp-signup-closed-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.4rem; color: #e57373; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
   .lp-signup-closed-sub { font-size: 0.88rem; color: #888; line-height: 1.6; font-family: 'Noto Sans', sans-serif; }
   .score-input:disabled, .styled-select:disabled, .num-input:disabled { opacity: 0.55; cursor: not-allowed; }
-  .num-stepper:disabled { opacity: 0.4; cursor: not-allowed; }
   .standings-readonly .drag-team, .standings-readonly .standing-slot { pointer-events: none; opacity: 0.85; }
 
   /* --- Landing page --- */
@@ -685,7 +688,6 @@ const css = `
     .rule-card { padding: 12px; }
 
     .stat-card { padding: 12px; }
-    .num-stepper { width: 44px; height: 44px; font-size: 1.3rem; }
 
     .lb-row { gap: 8px; padding: 12px 0; }
     .lb-rank { font-size: 1rem; width: 28px; }
@@ -762,7 +764,15 @@ function ScoreInput({ value, onChange, label, disabled }) {
       type="number"
       className="score-input"
       value={value === "" ? "" : value}
-      onChange={e => onChange(e.target.value === "" ? "" : Math.max(0, parseInt(e.target.value) || 0))}
+      onChange={e => {
+        const raw = e.target.value;
+        if (raw === "") {
+          onChange("");
+          return;
+        }
+        const parsed = parseInt(raw, 10);
+        onChange(Number.isFinite(parsed) ? Math.min(20, Math.max(0, parsed)) : 0);
+      }}
       min={0}
       max={20}
       placeholder="0"
@@ -773,20 +783,30 @@ function ScoreInput({ value, onChange, label, disabled }) {
   );
 }
 
-function NumberStepper({ value, onChange, min = 0, max = 999, label, disabled }) {
+function NumberInput({ value, onChange, min = 0, max = 999, label, disabled }) {
   return (
-    <div className="number-input-row" role="group" aria-label={label || "Number input"}>
-      <button type="button" className="num-stepper" disabled={disabled} onClick={() => !disabled && onChange(Math.max(min, (value || 0) - 1))} aria-label="Decrease">−</button>
+    <div className="number-input-row">
       <input
         type="number"
         className="num-input"
         value={value === "" ? "" : value}
-        onChange={e => !disabled && onChange(e.target.value === "" ? "" : Math.max(min, parseInt(e.target.value) || 0))}
+        onChange={e => {
+          if (disabled) return;
+          const raw = e.target.value;
+          if (raw === "") {
+            onChange("");
+          } else if (/^\d+$/.test(raw)) {
+            const parsed = Number(raw);
+            onChange(Number.isFinite(max) ? Math.min(parsed, max) : parsed);
+          }
+        }}
+        min={min}
+        max={max}
+        placeholder="140"
         aria-label={label || "Value"}
         inputMode="numeric"
         disabled={disabled}
       />
-      <button type="button" className="num-stepper" disabled={disabled} onClick={() => !disabled && onChange(Math.min(max, (value || 0) + 1))} aria-label="Increase">+</button>
     </div>
   );
 }
@@ -913,6 +933,13 @@ function SignupScreen({
     }
   };
 
+  const exampleEntryCount = 20;
+  const examplePot = getPotBreakdown(exampleEntryCount);
+  const prizePercent = 100 - COST_PERCENT;
+  const examplePrizeNote = COST_PERCENT > 0
+    ? `£${examplePot.prizePot.toFixed(0)} prize pool after ${COST_PERCENT}% costs`
+    : "all entry fees go to prizes";
+
   return (
     <div className="lp">
       {/* ── HERO ─────────────────────────────────────────────────── */}
@@ -925,12 +952,12 @@ function SignupScreen({
           <div className="lp-hero-sub">
             {submissionClosed
               ? "Submissions for this pool are closed. The entry deadline was one hour before the first match."
-              : "Enter the World Cup 2026 prediction league, call the scores, pick the big tournament outcomes, and follow the live leaderboard as every match moves the prize race."}
+              : "Enter the World Cup 2026 prediction league for the 48-team, 104-match tournament. Call the scores, pick the big outcomes, and follow the live leaderboard as every result moves the prize race."}
           </div>
           <div className="lp-hero-points" aria-label="Competition highlights">
             <span className="lp-hero-point">£10 entry</span>
-            <span className="lp-hero-point">48 group match predictions</span>
-            <span className="lp-hero-point">Cash prize pool</span>
+            <span className="lp-hero-point">72 group match predictions</span>
+            <span className="lp-hero-point">{prizePercent}% prize pool</span>
             <span className="lp-hero-point">Live scoring</span>
           </div>
           {!submissionClosed && countdownLabel && (
@@ -961,23 +988,23 @@ function SignupScreen({
         <div className="lp-section-title">A World Cup Pool With <em>Proper Stakes</em></div>
         <div className="lp-section-line" />
         <div className="lp-section-sub">
-          This is a paid prediction competition built for the full 2026 tournament: simple to enter, satisfying to follow, and decided by the quality of your calls.
+          This is a paid prediction competition built for the full 2026 tournament: 48 teams, 12 groups, and 104 matches across Canada, Mexico, and the USA.
         </div>
         <div className="lp-intro-grid">
           <div className="lp-intro-card">
-            <div className="lp-intro-kicker">48</div>
+            <div className="lp-intro-kicker">72</div>
             <div className="lp-intro-title">Group games to call</div>
             <div className="lp-intro-copy">Predict every group-stage score and add anytime scorers for extra points.</div>
           </div>
           <div className="lp-intro-card">
             <div className="lp-intro-kicker">12</div>
             <div className="lp-intro-title">Groups to rank</div>
-            <div className="lp-intro-copy">Pick who tops each group and who sneaks through in second place.</div>
+            <div className="lp-intro-copy">Rank all four teams in every group. The official format sends the top two plus eight best third-placed teams to the Round of 32.</div>
           </div>
           <div className="lp-intro-card">
             <div className="lp-intro-kicker">£</div>
             <div className="lp-intro-title">Prize pool to chase</div>
-            <div className="lp-intro-copy">Every paid entry grows the pot, with prizes for the top finishers and Golden Boot call.</div>
+            <div className="lp-intro-copy">Every paid entry grows the pot: {COST_PERCENT}% covers organiser and hosting costs, and {prizePercent}% goes into the prize pool.</div>
           </div>
         </div>
       </div>
@@ -1033,14 +1060,14 @@ function SignupScreen({
             <div className="lp-rule-num">1</div>
             <div className="lp-rule-copy">
               <strong>Complete your predictions</strong>
-              <span>Match scores, group standings, outrights, scorers, and tournament totals all count.</span>
+              <span>Match scores, anytime scorers, all four group positions, outrights, and tournament totals all count.</span>
             </div>
           </div>
           <div className="lp-rule-line">
             <div className="lp-rule-num">2</div>
             <div className="lp-rule-copy">
               <strong>Pay to lock your entry</strong>
-              <span>The £10 entry fee confirms your place and locks your predictions.</span>
+              <span>The £10 entry fee confirms your place. {COST_PERCENT}% covers costs and the remaining {prizePercent}% goes into the prize pool.</span>
             </div>
           </div>
           <div className="lp-rule-line">
@@ -1054,7 +1081,7 @@ function SignupScreen({
             <div className="lp-rule-num">4</div>
             <div className="lp-rule-copy">
               <strong>Most points wins</strong>
-              <span>The leaderboard updates as results come in, with total tournament goals used as the tiebreaker.</span>
+              <span>The leaderboard updates as results come in. If points are level, the closest total tournament goals prediction ranks higher.</span>
             </div>
           </div>
         </div>
@@ -1065,32 +1092,32 @@ function SignupScreen({
         <div className="lp-section-title">What You <em>Predict</em></div>
         <div className="lp-section-line" />
         <div className="lp-section-sub">
-          More than just match scores. Test your football knowledge across three areas — including total tournament goals as the leaderboard tiebreaker.
+          More than just match scores. Test your football knowledge across the group stage, the final standings, and the biggest tournament outcomes.
         </div>
         <div className="lp-cats">
           <div className="lp-cat">
             <div className="lp-cat-icon">🥅</div>
             <div className="lp-cat-title">Match Scores</div>
             <div className="lp-cat-desc">
-              Predict the exact score for all 48 group stage matches. Nail the result for points — get the exact score for a bonus.
+              Predict the exact score for all 72 group-stage matches. Nail the result for points, get the exact score for a bonus, and add one anytime scorer.
             </div>
-            <div className="lp-cat-pts">Up to 10pts per match</div>
+            <div className="lp-cat-pts">Up to 11pts per match</div>
           </div>
           <div className="lp-cat">
             <div className="lp-cat-icon">📊</div>
             <div className="lp-cat-title">Group Standings</div>
             <div className="lp-cat-desc">
-              Pick which teams finish 1st and 2nd in each of the 12 groups. Get the order right for maximum points.
+              Pick all four finishing positions in each of the 12 groups. Every nation in the right place scores.
             </div>
-            <div className="lp-cat-pts">Up to 5pts per group</div>
+            <div className="lp-cat-pts">Up to 12pts per group</div>
           </div>
           <div className="lp-cat">
             <div className="lp-cat-icon">🏆</div>
             <div className="lp-cat-title">Outrights</div>
             <div className="lp-cat-desc">
-              Winner, Golden Boot, England’s run, highest-scoring team — plus total goals in the tournament (exact or within ±3 for points, and closest to the real total breaks ties on the leaderboard).
+              Winner, runner-up, third place, awards, England’s run, highest-scoring team, and total tournament goals.
             </div>
-            <div className="lp-cat-pts">Up to 15pts per pick</div>
+            <div className="lp-cat-pts">10pts per correct pick</div>
           </div>
         </div>
       </div>
@@ -1113,20 +1140,20 @@ function SignupScreen({
               <div className="lp-score-label">Exact Score</div>
             </div>
             <div className="lp-score-card">
-              <div className="lp-score-pts">2<small>pts</small></div>
+              <div className="lp-score-pts">3<small>pts</small></div>
               <div className="lp-score-label">Anytime Scorer</div>
             </div>
             <div className="lp-score-card">
               <div className="lp-score-pts">3<small>pts</small></div>
-              <div className="lp-score-label">Group Winner</div>
+              <div className="lp-score-label">Group Position</div>
             </div>
             <div className="lp-score-card">
-              <div className="lp-score-pts">15<small>pts</small></div>
-              <div className="lp-score-label">Tournament Winner</div>
+              <div className="lp-score-pts">10<small>pts</small></div>
+              <div className="lp-score-label">Each Outright</div>
             </div>
             <div className="lp-score-card">
-              <div className="lp-score-pts">10<small> / 5</small></div>
-              <div className="lp-score-label">Total goals exact / ±3</div>
+              <div className="lp-score-pts">10<small>pts</small></div>
+              <div className="lp-score-label">Total goals within ±3</div>
             </div>
           </div>
         </div>
@@ -1138,14 +1165,14 @@ function SignupScreen({
         <div className="lp-section-line" />
         <div className="lp-section-sub">
           {COST_PERCENT > 0
-            ? `${COST_PERCENT}% is deducted for costs, then the remaining prize pool is paid out. The more players, the bigger the prizes.`
+            ? `${COST_PERCENT}% is deducted from the gross pot for organiser and hosting costs, then the remaining prize pool is paid out. The more players, the bigger the prizes.`
             : "100% of entry fees go to the prize pool. The more players, the bigger the prizes."}
         </div>
         <div className="lp-prizes">
           <div className="lp-prize-total">
-            <div className="lp-prize-total-label">Example pool (20 players)</div>
-            <div className="lp-prize-total-val">£200</div>
-            <div className="lp-prize-total-note">grows with every entry</div>
+            <div className="lp-prize-total-label">Example gross pot ({exampleEntryCount} players)</div>
+            <div className="lp-prize-total-val">£{examplePot.grossPot.toFixed(0)}</div>
+            <div className="lp-prize-total-note">{examplePrizeNote}</div>
           </div>
           <div className="lp-prize-row">
             <span className="lp-prize-medal">🥇</span>
@@ -1185,12 +1212,28 @@ function SignupScreen({
               a="You don't have to fill in every single prediction — but you'll only earn points for the ones you submit. We recommend completing as many as possible to maximise your chances."
             />
             <FaqItem
+              q="How does the 2026 World Cup format work?"
+              a="There are 48 teams in 12 groups of four. Each team plays three group matches, then the top two in every group plus the eight best third-placed teams reach the Round of 32."
+            />
+            <FaqItem
+              q="How do group standings score?"
+              a="You predict 1st to 4th in every group. Each nation in the exact correct position is worth 3 points, so a perfect group is worth 12 points."
+            />
+            <FaqItem
               q="How does the anytime goalscorer work?"
-              a="For each match, you can pick one player you think will score at any point during the game. If they score (including own goals don't count), you earn 2 bonus points."
+              a="For each match, you can pick one player you think will score at any point during the game. Own goals don't count. If your player scores, you earn 3 bonus points."
+            />
+            <FaqItem
+              q="How does total tournament goals work?"
+              a="You earn 10 points if your prediction is within 3 goals of the final tournament total. If players are tied on points, the closest total-goals prediction ranks higher."
             />
             <FaqItem
               q="How is the leaderboard updated?"
               a="The leaderboard updates automatically in real time as match results come in from the tournament. You can watch your score change live during matches."
+            />
+            <FaqItem
+              q="Where does the entry fee go?"
+              a={`Each entry is £10. ${COST_PERCENT}% goes toward organiser and hosting costs, and the remaining ${prizePercent}% goes into the prize pool before prize percentages are applied.`}
             />
             <FaqItem
               q="Is the payment secure?"
@@ -1198,11 +1241,11 @@ function SignupScreen({
             />
             <FaqItem
               q="Can I get a refund?"
-              a="Refunds are available up until predictions lock at tournament kickoff. After that, all entries are final."
+              a="Contact the organiser before the entry deadline if you need help. Once the entry window closes, entries are final."
             />
             <FaqItem
-              q="What happens with playoff teams (TBC spots)?"
-              a="Some group spots are still pending playoff results. Once confirmed, we'll update the teams and notify all entrants. Predictions for those matches can be updated until lock-in."
+              q="Are the teams and groups final?"
+              a="The app is configured with the current 48-team group-stage setup. If FIFA makes a late schedule or team-name correction, the app will be updated before entries lock."
             />
           </div>
         </div>
@@ -1616,7 +1659,7 @@ function OutrightsScreen({ preds, setPreds, readOnly }) {
       kind: "number",
       min: 50,
       max: 250,
-      hint: "Every goal in the tournament counts. Also used as the leaderboard tiebreaker when points are level.",
+      hint: "Earn 10 points if you are within 3 goals of the final tournament total. Closest total-goals prediction breaks leaderboard ties.",
     },
   ];
 
@@ -1635,7 +1678,7 @@ function OutrightsScreen({ preds, setPreds, readOnly }) {
                 <span className="outright-icon">{icon}</span>
                 <label>{label}</label>
                 {hint && <div className="hint" style={{ fontSize: "0.72rem", color: "#444", marginTop: 6, marginBottom: 10, fontFamily: "'Noto Sans', sans-serif", lineHeight: 1.5 }}>{hint}</div>}
-                <NumberStepper value={preds[key] ?? ""} onChange={v => set(key, v)} min={min} max={max} label={label} disabled={readOnly} />
+                <NumberInput value={preds[key] ?? ""} onChange={v => set(key, v)} min={min} max={max} label={label} disabled={readOnly} />
               </div>
             );
           }
@@ -1665,14 +1708,11 @@ function RulesScreen() {
   const rules = [
     { icon: "✅", title: "Correct result", pts: "+3 pts", desc: "Predict the right W/D/L outcome" },
     { icon: "🎯", title: "Exact score", pts: "+5 pts", desc: "Nail the exact scoreline" },
-    { icon: "⚽", title: "Anytime scorer", pts: "+4 pts", desc: "Your picked player scores at any point" },
-    { icon: "📋", title: "Group winner", pts: "+6 pts", desc: "Correctly predict a group winner" },
-    { icon: "🥈", title: "Group runner-up", pts: "+4 pts", desc: "Correctly predict 2nd place" },
-    { icon: "🏆", title: "Tournament winner", pts: "+15 pts", desc: "You called the champions!" },
-    { icon: "👟", title: "Golden Boot", pts: "+10 pts", desc: "Pick the top scorer correctly" },
-    { icon: "🔥", title: "Highest scoring team", pts: "+10 pts", desc: "Team with the most goals in the tournament" },
-    { icon: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", title: "England progress", pts: "+8 pts", desc: "How far England go — exact stage matched after the tournament" },
-    { icon: "⚽", title: "Total tournament goals", pts: "+10 / +5 pts", desc: "Exact total goals, or within ±3 — also breaks ties on the leaderboard" },
+    { icon: "⚽", title: "Anytime scorer", pts: "+3 pts", desc: "Your picked player scores; own goals do not count" },
+    { icon: "📋", title: "Group position", pts: "+3 pts", desc: "Each nation in the correct group place" },
+    { icon: "🏆", title: "Each outright", pts: "+10 pts", desc: "Winner, podium, awards, and top-scoring team" },
+    { icon: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", title: "England progress", pts: "+10 pts", desc: "How far England go — exact stage matched after the tournament" },
+    { icon: "⚽", title: "Total tournament goals", pts: "+10 pts", desc: "Within ±3 of the final total; closest prediction breaks ties" },
   ];
 
   return (
@@ -1942,7 +1982,7 @@ function SubmitScreen({ preds, profile, onPay, paymentLoading, submissionClosed 
   const totalGroups = Object.keys(TEAMS).length;
   const groupsDone = Object.keys(TEAMS).filter(g => {
     const s = preds[`standings_${g}`];
-    return s && s.length >= 2 && s[0] && s[1];
+    return s && s.filter(Boolean).length === 4;
   }).length;
 
   const outrightKeys = ["winner", "runner_up", "third", "golden_boot", "golden_glove", "best_young", "top_scoring_team", "england_progress", "total_goals"];
@@ -2078,14 +2118,27 @@ export default function App() {
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [deadlineTick, setDeadlineTick] = useState(0);
   const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
+  const [deadlineSettings, setDeadlineSettings] = useState(null);
 
   useEffect(() => {
     const id = setInterval(() => setDeadlineTick((t) => t + 1), 1000);
     return () => clearInterval(id);
   }, []);
 
-  const deadlineMs = useMemo(() => getSubmissionDeadlineMs(results), [results]);
-  const firstKickoffMs = useMemo(() => getFirstKickoffMs(results), [results]);
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    let cancelled = false;
+    (async () => {
+      const settings = await fetchTournamentSettings();
+      if (!cancelled && settings) setDeadlineSettings(settings);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const deadlineMs = useMemo(() => getSubmissionDeadlineMs(results, deadlineSettings), [results, deadlineSettings]);
+  const firstKickoffMs = useMemo(() => getFirstKickoffMs(results, deadlineSettings), [results, deadlineSettings]);
   void deadlineTick;
   const now = Date.now();
   const submissionClosed = now >= deadlineMs;
@@ -2295,7 +2348,7 @@ export default function App() {
   };
 
   const enterPredictionsAfterAuth = ({ allowAfterDeadline = false } = {}) => {
-    if (!allowAfterDeadline && Date.now() >= getSubmissionDeadlineMs(results)) {
+    if (!allowAfterDeadline && Date.now() >= getSubmissionDeadlineMs(results, deadlineSettings)) {
       showToast("Submissions are closed — new entries are not accepted.");
       return false;
     }
@@ -2329,7 +2382,7 @@ export default function App() {
   };
 
   const handleLocalOnlyComplete = (form) => {
-    if (Date.now() >= getSubmissionDeadlineMs(results)) {
+    if (Date.now() >= getSubmissionDeadlineMs(results, deadlineSettings)) {
       showToast("Submissions are closed — new entries are not accepted.");
       return;
     }
@@ -2339,7 +2392,7 @@ export default function App() {
   };
 
   const handlePasswordSignUp = async (form) => {
-    if (Date.now() >= getSubmissionDeadlineMs(results)) {
+    if (Date.now() >= getSubmissionDeadlineMs(results, deadlineSettings)) {
       return { ok: false, error: "Entries are closed. Existing players can still sign in.", switchToSignIn: true };
     }
     const r = await signUpWithPassword({
@@ -2378,40 +2431,40 @@ export default function App() {
       showToast(r.error);
       return { ok: false, error: r.error };
     }
-    // Navigate immediately so a slow profiles / wc_predictions fetch cannot block the UI
+    // Navigate immediately; profile and prediction hydration can finish in the background.
     enterPredictionsAfterAuth({ allowAfterDeadline: true });
-    try {
-      const row = await fetchPredictionsRow();
-      if (row?.predictions && typeof row.predictions === "object") {
-        setPreds(row.predictions);
-        persistLocal(row.predictions, "matches");
-      }
-      const ensured = await ensureProfileFromAuthSession();
-      if (ensured.ok && ensured.profile) {
-        setProfile(ensured.profile);
-        const incomplete = !ensured.profile.name || !ensured.profile.email;
-        setNeedsProfileCompletion(incomplete);
-        if (ensured.created) {
-          showToast("Your account had no league profile row — we created one from your sign-in email.");
-        } else if (incomplete) {
-          showToast("Signed in — please complete your profile to submit predictions.");
-          setScreen("signup");
+    void (async () => {
+      try {
+        const row = await fetchPredictionsRow();
+        if (row?.predictions && typeof row.predictions === "object") {
+          setPreds(row.predictions);
+          persistLocal(row.predictions, "matches");
         }
-      } else {
-        setProfile(null);
+        const ensured = await ensureProfileFromAuthSession();
+        if (ensured.ok && ensured.profile) {
+          setProfile(ensured.profile);
+          const incomplete = !ensured.profile.name || !ensured.profile.email;
+          setNeedsProfileCompletion(incomplete);
+          if (ensured.created) {
+            showToast("Your account had no league profile row — we created one from your sign-in email.");
+          } else if (incomplete) {
+            showToast("Signed in — complete your profile details before paying.");
+          }
+        } else {
+          setProfile(null);
+          setNeedsProfileCompletion(true);
+          showToast(
+            ensured.error
+              ? `Signed in — profile could not be saved yet: ${ensured.error}`
+              : "Signed in — profile details are still syncing.",
+          );
+        }
+      } catch (e) {
+        console.warn("After sign-in:", e);
         setNeedsProfileCompletion(true);
-        setScreen("signup");
-        showToast(
-          ensured.error
-            ? `Signed in — profile could not be saved: ${ensured.error}`
-            : "Signed in — please complete your profile to submit predictions.",
-        );
+        showToast("Signed in — please refresh if your predictions do not appear.");
       }
-    } catch (e) {
-      console.warn("After sign-in:", e);
-      setNeedsProfileCompletion(true);
-      showToast("Signed in — please refresh if your predictions do not appear.");
-    }
+    })();
     return { ok: true };
   };
 
@@ -2431,7 +2484,7 @@ export default function App() {
       return;
     }
     if (profResult.warning) showToast(profResult.warning);
-    if (Date.now() < getSubmissionDeadlineMs(results)) {
+    if (Date.now() < getSubmissionDeadlineMs(results, deadlineSettings)) {
       const r = await upsertPredictions(preds, {
         name,
         email: session.user.email,
@@ -2461,7 +2514,7 @@ export default function App() {
   };
 
   const handlePayment = async () => {
-    if (Date.now() >= getSubmissionDeadlineMs(results)) {
+    if (Date.now() >= getSubmissionDeadlineMs(results, deadlineSettings)) {
       showToast("Submissions are closed — payment is no longer available.");
       return;
     }
@@ -2520,23 +2573,33 @@ export default function App() {
 
   const handleSave = async (options = {}) => {
     const silentSuccess = options?.silentSuccess === true;
-    if (profile?.locked || Date.now() >= getSubmissionDeadlineMs(results)) {
+    const currentScreen = screen;
+    const nextScreen = options?.advanceOnSave ? NEXT_PREDICTION_SCREEN[currentScreen] : null;
+    const advanceAfterLocalSave = () => {
+      if (!nextScreen) return;
+      setScreen(nextScreen);
+      persistLocal(preds, nextScreen);
+    };
+    if (profile?.locked || Date.now() >= getSubmissionDeadlineMs(results, deadlineSettings)) {
       const error = "Predictions are locked — no changes can be saved.";
       showToast(error);
       return { ok: false, error };
     }
-    persistLocal(preds, screen);
+    persistLocal(preds, currentScreen);
     if (!isSupabaseConfigured) {
       const error = "Online save is not configured — payment is unavailable until Supabase is connected.";
+      advanceAfterLocalSave();
       if (!silentSuccess) showToast("Predictions saved locally!");
       return { ok: false, error, localOnly: true };
     }
     const r = await upsertPredictions(preds, {});
     if (r.ok) {
+      advanceAfterLocalSave();
       if (!silentSuccess) showToast("Predictions saved!");
       return { ok: true };
     }
     const error = `Saved locally — sync failed: ${r.error}`;
+    advanceAfterLocalSave();
     showToast(error);
     return { ok: false, error };
   };
@@ -2630,7 +2693,7 @@ export default function App() {
 
         {screen !== "signup" && screen !== "leaderboard" && screen !== "rules" && screen !== "submit" && !predictionsReadOnly && (
           <div style={{ padding: "0 1.5rem", marginTop: "8px" }}>
-            <button className="btn-primary" onClick={handleSave}>Save Predictions</button>
+            <button type="button" className="btn-primary" onClick={() => handleSave({ advanceOnSave: true })}>Save Predictions</button>
           </div>
         )}
 
@@ -2639,3 +2702,4 @@ export default function App() {
     </>
   );
 }
+

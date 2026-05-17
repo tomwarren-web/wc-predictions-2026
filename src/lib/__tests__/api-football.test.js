@@ -16,6 +16,8 @@ import {
   completeTournamentHandlers,
 } from "../../test/handlers/api-football.js";
 
+const BASE = "https://v3.football.api-sports.io";
+
 // Lazy import helpers — we re-import after resetting modules where needed
 async function importModule() {
   return import("../api-football.js");
@@ -207,6 +209,38 @@ describe("fetchAllResults — mid-tournament (some live, some finished)", () => 
     expect(m.scorers.some((s) => s.includes("Gimenez") || s.includes("Giménez"))).toBe(true);
   });
 
+  it("does not count own goals as anytime scorers", async () => {
+    server.use(
+      http.get(`${BASE}/fixtures`, () => HttpResponse.json({
+        response: [
+          {
+            fixture: {
+              id: 7771,
+              date: "2026-06-11T22:00:00+00:00",
+              status: { short: "FT", long: "Match Finished", elapsed: 90 },
+            },
+            league: { id: 1, round: "Group Stage - 1" },
+            teams: {
+              home: { id: 10, name: "England" },
+              away: { id: 11, name: "Croatia" },
+            },
+            goals: { home: 2, away: 0 },
+          },
+        ],
+      })),
+      http.get(`${BASE}/fixtures/events`, () => HttpResponse.json({
+        response: [
+          { detail: "Own Goal", team: { name: "England" }, player: { name: "Harry Kane" } },
+          { detail: "Normal Goal", team: { name: "England" }, player: { name: "Bukayo Saka" } },
+        ],
+      })),
+    );
+
+    const { fetchAllResults } = await importModule();
+    const results = await fetchAllResults();
+    expect(results.matches["England-Croatia"].scorers).toEqual(["England|Bukayo Saka"]);
+  });
+
   it("totalGoals stat counts finished match goals", async () => {
     const { fetchAllResults } = await importModule();
     const results = await fetchAllResults();
@@ -239,6 +273,36 @@ describe("fetchAllResults — complete tournament", () => {
   it("englandProgress reflects 'Winners' (won last match)", async () => {
     const { fetchAllResults } = await importModule();
     const results = await fetchAllResults();
+    expect(results.englandProgress).toBe("Winners");
+  });
+
+  it("uses penalty shootout scores to decide final winner and England progress", async () => {
+    server.use(
+      http.get(`${BASE}/fixtures`, () => HttpResponse.json({
+        response: [
+          {
+            fixture: {
+              id: 8881,
+              date: "2026-07-19T00:00:00+00:00",
+              status: { short: "PEN", long: "Penalty Shootout", elapsed: 120 },
+            },
+            league: { id: 1, round: "Final" },
+            teams: {
+              home: { id: 10, name: "England" },
+              away: { id: 22, name: "Germany" },
+            },
+            goals: { home: 1, away: 1 },
+            score: { penalty: { home: 5, away: 4 } },
+          },
+        ],
+      })),
+      http.get(`${BASE}/fixtures/events`, () => HttpResponse.json({ response: [] })),
+    );
+
+    const { fetchAllResults } = await importModule();
+    const results = await fetchAllResults();
+    expect(results.tournamentResults.winner).toBe("England");
+    expect(results.tournamentResults.runnerUp).toBe("Germany");
     expect(results.englandProgress).toBe("Winners");
   });
 

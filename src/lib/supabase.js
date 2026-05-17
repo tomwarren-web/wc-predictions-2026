@@ -436,6 +436,28 @@ export async function fetchAllPredictions() {
   return data || [];
 }
 
+export async function fetchTournamentSettings() {
+  if (!supabase) return null;
+  const { data, error } = await supabase
+    .from("app_settings")
+    .select("key, value")
+    .in("key", ["entry_deadline_iso", "first_match_kickoff_iso"]);
+
+  if (error) {
+    const msg = error.message || "";
+    if (!/does not exist|schema cache|Could not find/i.test(msg)) {
+      console.warn("fetchTournamentSettings:", msg);
+    }
+    return null;
+  }
+
+  const byKey = Object.fromEntries((data || []).map((row) => [row.key, row.value]));
+  return {
+    entryDeadlineIso: byKey.entry_deadline_iso || null,
+    firstKickoffIso: byKey.first_match_kickoff_iso || null,
+  };
+}
+
 const OUTRIGHT_KEYS = [
   "winner",
   "runner_up",
@@ -449,11 +471,19 @@ const OUTRIGHT_KEYS = [
 ];
 
 const STAT_KEYS = ["total_goals"];
+const MAX_MATCH_GOALS = 20;
 
 function parseSmallGoal(v) {
   if (v === "" || v === undefined || v === null) return null;
   const n = Number(v);
-  return Number.isFinite(n) ? n : null;
+  if (!Number.isFinite(n)) return null;
+  const whole = Math.trunc(n);
+  if (whole < 0 || whole > MAX_MATCH_GOALS) return null;
+  return whole;
+}
+
+function isMissingNormalizedTableError(error) {
+  return /does not exist|schema cache|Could not find/i.test(error?.message || "");
 }
 
 /** Writes match_predictions, standings_predictions, outright_predictions, stat_predictions (full schema). */
@@ -481,15 +511,6 @@ export async function syncNormalizedPredictions(predictions) {
   if (prof.locked) return { ok: true };
 
   const pred = predictions && typeof predictions === "object" ? predictions : {};
-
-  const del = async (table) => {
-    const { error } = await supabase.from(table).delete().eq("user_id", uid);
-    if (error && /does not exist|schema cache|Could not find/i.test(error.message || "")) {
-      return { skip: true };
-    }
-    if (error) return { error };
-    return {};
-  };
 
   const matchRows = [];
   for (const [key, raw] of Object.entries(pred)) {
@@ -547,32 +568,59 @@ export async function syncNormalizedPredictions(predictions) {
     });
   }
 
-  const t1 = await del("match_predictions");
-  if (t1.error) return { ok: false, error: t1.error.message };
-  if (t1.skip) return { ok: true, skipped: true };
+  const upsertRows = async (table, rows, onConflict) => {
+    if (!rows.length) return {};
+    const { error } = await supabase.from(table).upsert(rows, { onConflict });
+    if (error && isMissingNormalizedTableError(error)) return { skip: true };
+    if (error) return { error };
+    return {};
+  };
 
-  const t2 = await del("standings_predictions");
-  if (t2.error) return { ok: false, error: t2.error.message };
-  const t3 = await del("outright_predictions");
-  if (t3.error) return { ok: false, error: t3.error.message };
-  const t4 = await del("stat_predictions");
-  if (t4.error) return { ok: false, error: t4.error.message };
+  const deleteStaleRows = async (table, keyColumn, keepValues) => {
+    const { data, error } = await supabase
+      .from(table)
+      .select(keyColumn)
+      .eq("user_id", uid);
+    if (error && isMissingNormalizedTableError(error)) return { skip: true };
+    if (error) return { error };
 
-  if (matchRows.length) {
-    const { error } = await supabase.from("match_predictions").insert(matchRows);
-    if (error) return { ok: false, error: error.message };
+    const keep = new Set(keepValues);
+    const stale = (data || [])
+      .map((row) => row[keyColumn])
+      .filter((value) => value != null && value !== "" && !keep.has(value));
+
+    for (let i = 0; i < stale.length; i += 50) {
+      const batch = stale.slice(i, i + 50);
+      const { error: delError } = await supabase
+        .from(table)
+        .delete()
+        .eq("user_id", uid)
+        .in(keyColumn, batch);
+      if (delError) return { error: delError };
+    }
+    return {};
+  };
+
+  const writes = [
+    await upsertRows("match_predictions", matchRows, "user_id,match_key"),
+    await upsertRows("standings_predictions", standingsRows, "user_id,group_letter"),
+    await upsertRows("outright_predictions", outrightRows, "user_id,prediction_type"),
+    await upsertRows("stat_predictions", statRows, "user_id,stat_key"),
+  ];
+  for (const result of writes) {
+    if (result.skip) return { ok: true, skipped: true };
+    if (result.error) return { ok: false, error: result.error.message };
   }
-  if (standingsRows.length) {
-    const { error } = await supabase.from("standings_predictions").insert(standingsRows);
-    if (error) return { ok: false, error: error.message };
-  }
-  if (outrightRows.length) {
-    const { error } = await supabase.from("outright_predictions").insert(outrightRows);
-    if (error) return { ok: false, error: error.message };
-  }
-  if (statRows.length) {
-    const { error } = await supabase.from("stat_predictions").insert(statRows);
-    if (error) return { ok: false, error: error.message };
+
+  const deletes = [
+    await deleteStaleRows("match_predictions", "match_key", matchRows.map((row) => row.match_key)),
+    await deleteStaleRows("standings_predictions", "group_letter", standingsRows.map((row) => row.group_letter)),
+    await deleteStaleRows("outright_predictions", "prediction_type", outrightRows.map((row) => row.prediction_type)),
+    await deleteStaleRows("stat_predictions", "stat_key", statRows.map((row) => row.stat_key)),
+  ];
+  for (const result of deletes) {
+    if (result.skip) return { ok: true, skipped: true };
+    if (result.error) return { ok: false, error: result.error.message };
   }
 
   return { ok: true };

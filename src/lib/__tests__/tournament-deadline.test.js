@@ -62,6 +62,22 @@ describe("getEarliestFixtureKickoffMs", () => {
 // ─── getFirstKickoffMs ───────────────────────────────────────────────────────
 
 describe("getFirstKickoffMs", () => {
+  it("uses a configured settings kickoff before env or fixture dates", () => {
+    vi.stubEnv("VITE_FIRST_MATCH_KICKOFF_ISO", "2026-06-10T18:00:00.000Z");
+    const results = {
+      matches: { "A-B": { date: "2026-06-11T22:00:00Z" } },
+    };
+    expect(getFirstKickoffMs(results, { firstKickoffIso: "2026-06-09T12:00:00.000Z" })).toBe(
+      Date.parse("2026-06-09T12:00:00.000Z"),
+    );
+  });
+
+  it("derives first kickoff from a configured entry deadline when kickoff is absent", () => {
+    expect(getFirstKickoffMs(null, { entryDeadlineIso: "2026-06-10T17:00:00.000Z" })).toBe(
+      Date.parse("2026-06-10T18:00:00.000Z"),
+    );
+  });
+
   it("uses VITE_FIRST_MATCH_KICKOFF_ISO env var when valid", () => {
     vi.stubEnv("VITE_FIRST_MATCH_KICKOFF_ISO", "2026-06-10T18:00:00.000Z");
     expect(getFirstKickoffMs(null)).toBe(Date.parse("2026-06-10T18:00:00.000Z"));
@@ -101,6 +117,19 @@ describe("getFirstKickoffMs", () => {
 // ─── getSubmissionDeadlineMs ─────────────────────────────────────────────────
 
 describe("getSubmissionDeadlineMs", () => {
+  it("uses configured entry deadline before deriving from kickoff", () => {
+    vi.stubEnv("VITE_FIRST_MATCH_KICKOFF_ISO", "2026-06-10T18:00:00.000Z");
+    expect(getSubmissionDeadlineMs(null, { entryDeadlineIso: "2026-06-09T20:00:00.000Z" })).toBe(
+      Date.parse("2026-06-09T20:00:00.000Z"),
+    );
+  });
+
+  it("uses VITE_ENTRY_DEADLINE_ISO before VITE_FIRST_MATCH_KICKOFF_ISO", () => {
+    vi.stubEnv("VITE_ENTRY_DEADLINE_ISO", "2026-06-09T20:00:00.000Z");
+    vi.stubEnv("VITE_FIRST_MATCH_KICKOFF_ISO", "2026-06-10T18:00:00.000Z");
+    expect(getSubmissionDeadlineMs(null)).toBe(Date.parse("2026-06-09T20:00:00.000Z"));
+  });
+
   it("is exactly one hour before the first kick-off", () => {
     vi.stubEnv("VITE_FIRST_MATCH_KICKOFF_ISO", "2026-06-11T22:00:00.000Z");
     expect(getSubmissionDeadlineMs(null)).toBe(FALLBACK_DEADLINE_MS);

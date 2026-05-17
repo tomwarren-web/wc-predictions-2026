@@ -48,21 +48,61 @@ $$;
 revoke all on function public.protect_profile_server_fields() from public, anon, authenticated;
 
 -- Backfill any auth users created while the trigger permission was too strict.
+-- Usernames are deduped here because profiles_username_idx is already unique,
+-- and migration 009 cannot repair this if migration 008 fails first.
+with missing as (
+  select
+    u.id,
+    coalesce(u.email, '') as email,
+    coalesce(
+      nullif(trim(u.raw_user_meta_data->>'name'), ''),
+      nullif(split_part(coalesce(u.email, ''), '@', 1), ''),
+      'Player'
+    ) as name,
+    coalesce(
+      nullif(
+        trim(both '_' from regexp_replace(
+          regexp_replace(
+            lower(coalesce(
+              nullif(trim(u.raw_user_meta_data->>'username'), ''),
+              nullif(split_part(coalesce(u.email, ''), '@', 1), ''),
+              'player'
+            )),
+            '[^a-z0-9_]+',
+            '_',
+            'g'
+          ),
+          '_+',
+          '_',
+          'g'
+        )),
+        ''
+      ),
+      'player'
+    ) as username_base
+  from auth.users u
+  where not exists (select 1 from public.profiles p where p.id = u.id)
+),
+ranked as (
+  select
+    m.*,
+    row_number() over (partition by lower(m.username_base) order by m.id) as duplicate_rank
+  from missing m
+),
+prepared as (
+  select
+    r.id,
+    r.email,
+    r.name,
+    case
+      when r.duplicate_rank > 1
+        or exists (select 1 from public.profiles p where lower(p.username) = lower(left(r.username_base, 24)))
+      then left(r.username_base, 24) || '_' || left(replace(r.id::text, '-', ''), 8)
+      else left(r.username_base, 24)
+    end as username
+  from ranked r
+)
 insert into public.profiles (id, email, name, username, paid, locked)
-select
-  u.id,
-  coalesce(u.email, ''),
-  coalesce(
-    nullif(trim(u.raw_user_meta_data->>'name'), ''),
-    nullif(split_part(coalesce(u.email, ''), '@', 1), ''),
-    'Player'
-  ),
-  coalesce(
-    nullif(trim(u.raw_user_meta_data->>'username'), ''),
-    'user_' || left(replace(u.id::text, '-', ''), 8)
-  ),
-  false,
-  false
-from auth.users u
-where not exists (select 1 from public.profiles p where p.id = u.id)
-on conflict (id) do nothing;
+select id, email, name, username, false, false
+from prepared
+on conflict do nothing;

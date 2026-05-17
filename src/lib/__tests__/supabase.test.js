@@ -3,7 +3,7 @@
  *
  * The Supabase client is mocked entirely — no real network calls are made.
  * We test the helper function logic: upsertProfile (insert vs update paths),
- * syncNormalizedPredictions (delete+insert, locked guard), isLikelyServiceRoleKey,
+ * syncNormalizedPredictions (upsert/stale-delete, locked guard), isLikelyServiceRoleKey,
  * and the no-op paths when Supabase is not configured.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";

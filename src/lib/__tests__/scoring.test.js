@@ -93,21 +93,21 @@ describe("scoreMatch", () => {
     expect(r.points).toBe(8);
   });
 
-  it("+4 for correct anytime scorer", () => {
+  it("+3 for correct anytime scorer", () => {
     // scorer stored as "Team|Player" in the prediction; scorers in result as ["Team|Player"]
     const r = scoreMatch(
       { home: 1, away: 0, scorer: "England|Harry Kane" },
       finishedResult(1, 0, ["England|Harry Kane"]),
     );
-    expect(r.points).toBe(4 + 3 + 5); // scorer + correct result + exact score = 12
+    expect(r.points).toBe(3 + 3 + 5); // scorer + correct result + exact score = 11
   });
 
-  it("+4 scorer matched despite accent difference (Kane vs Kane)", () => {
+  it("+3 scorer matched despite accent difference (Kane vs Kane)", () => {
     const r = scoreMatch(
       { home: 1, away: 0, scorer: "England|Harry Kane" },
       finishedResult(1, 0, ["England|Harry Kane"]),
     );
-    expect(r.points).toBeGreaterThanOrEqual(4);
+    expect(r.points).toBeGreaterThanOrEqual(3);
   });
 
   it("0 scorer points when player did not score", () => {
@@ -127,12 +127,12 @@ describe("scoreMatch", () => {
     expect(r.points).toBe(8);
   });
 
-  it("all three correct gives 12 points", () => {
+  it("all three correct gives 11 points", () => {
     const r = scoreMatch(
       { home: 1, away: 0, scorer: "England|Harry Kane" },
       finishedResult(1, 0, ["England|Harry Kane"]),
     );
-    expect(r.points).toBe(12);
+    expect(r.points).toBe(11);
     expect(r.breakdown).toHaveLength(3);
   });
 
@@ -150,22 +150,28 @@ describe("scoreGroupStandings", () => {
     expect(scoreGroupStandings(null, null).points).toBe(0);
   });
 
-  it("+6 for correct group winner", () => {
-    const r = scoreGroupStandings(["England", "Croatia", "Ghana", "Panama"], ["England", "Ghana", "Croatia", "Panama"]);
-    expect(r.points).toBe(6);
-    expect(r.breakdown[0].label).toContain("group winner");
+  it("+3 for correct group winner position", () => {
+    const r = scoreGroupStandings(["England", "Croatia", "Ghana", "Panama"], ["England", "Ghana", "Panama", "Croatia"]);
+    expect(r.points).toBe(3);
+    expect(r.breakdown[0].label).toContain("group position 1");
   });
 
-  it("+4 for correct runner-up only", () => {
+  it("+3 for correct runner-up position only", () => {
     const r = scoreGroupStandings(["Germany", "France", "Brazil", "Argentina"], ["England", "France", "Croatia", "Ghana"]);
-    expect(r.points).toBe(4);
-    expect(r.breakdown[0].label).toContain("group runner-up");
+    expect(r.points).toBe(3);
+    expect(r.breakdown[0].label).toContain("group position 2");
   });
 
-  it("+10 for both winner and runner-up correct", () => {
+  it("+6 for both winner and runner-up positions correct", () => {
     const r = scoreGroupStandings(["England", "Croatia", "Ghana", "Panama"], ["England", "Croatia", "Panama", "Ghana"]);
-    expect(r.points).toBe(10);
+    expect(r.points).toBe(6);
     expect(r.breakdown).toHaveLength(2);
+  });
+
+  it("+12 for all four group positions correct", () => {
+    const r = scoreGroupStandings(["England", "Croatia", "Ghana", "Panama"], ["England", "Croatia", "Ghana", "Panama"]);
+    expect(r.points).toBe(12);
+    expect(r.breakdown).toHaveLength(4);
   });
 
   it("0 points for neither position correct", () => {
@@ -176,7 +182,7 @@ describe("scoreGroupStandings", () => {
 
   it("handles shorter arrays gracefully", () => {
     const r = scoreGroupStandings(["England"], ["England", "Croatia"]);
-    expect(r.points).toBe(6);
+    expect(r.points).toBe(3);
   });
 });
 
@@ -200,9 +206,9 @@ describe("scoreOutrights", () => {
     expect(scoreOutrights({}, null).points).toBe(0);
   });
 
-  it("+15 for correct tournament winner", () => {
+  it("+10 for correct tournament winner", () => {
     const r = scoreOutrights({ winner: "England" }, baseResults);
-    expect(r.points).toBe(15);
+    expect(r.points).toBe(10);
   });
 
   it("+10 for correct runner-up", () => {
@@ -210,9 +216,9 @@ describe("scoreOutrights", () => {
     expect(r.points).toBe(10);
   });
 
-  it("+7 for correct third place", () => {
+  it("+10 for correct third place", () => {
     const r = scoreOutrights({ third: "France" }, baseResults);
-    expect(r.points).toBe(7);
+    expect(r.points).toBe(10);
   });
 
   it("+10 for correct golden boot (top scorer)", () => {
@@ -226,9 +232,9 @@ describe("scoreOutrights", () => {
     expect(r.points).toBe(0);
   });
 
-  it("+8 for correct England progress", () => {
+  it("+10 for correct England progress", () => {
     const r = scoreOutrights({ england_progress: "Winners" }, baseResults);
-    expect(r.points).toBe(8);
+    expect(r.points).toBe(10);
   });
 
   it("0 for wrong England progress", () => {
@@ -241,14 +247,14 @@ describe("scoreOutrights", () => {
     expect(r.points).toBe(10);
   });
 
-  it("+5 for total goals within ±3", () => {
+  it("+10 for total goals within ±3", () => {
     const r = scoreOutrights({ total_goals: 143 }, baseResults);
-    expect(r.points).toBe(5);
+    expect(r.points).toBe(10);
   });
 
-  it("+5 for total goals within ±3 (under)", () => {
+  it("+10 for total goals within ±3 (under)", () => {
     const r = scoreOutrights({ total_goals: 137 }, baseResults);
-    expect(r.points).toBe(5);
+    expect(r.points).toBe(10);
   });
 
   it("0 for total goals more than 3 away", () => {
@@ -266,7 +272,7 @@ describe("scoreOutrights", () => {
     expect(r.points).toBe(0);
   });
 
-  it("golden glove and best young player are NOT scored (documented gap)", () => {
+  it("golden glove and best young player are not scored without award data", () => {
     const r = scoreOutrights(
       { golden_glove: "England|Jordan Pickford", best_young: "England|Jude Bellingham" },
       baseResults,
@@ -274,16 +280,30 @@ describe("scoreOutrights", () => {
     expect(r.points).toBe(0);
   });
 
+  it("+10 each for correct golden glove and best young player when award data is available", () => {
+    const r = scoreOutrights(
+      { golden_glove: "England|Jordan Pickford", best_young: "England|Jude Bellingham" },
+      {
+        ...baseResults,
+        awards: {
+          goldenGlove: "England|Jordan Pickford",
+          bestYoung: { player: "Jude Bellingham", team: "England" },
+        },
+      },
+    );
+    expect(r.points).toBe(20);
+  });
+
   it("cumulative score across multiple correct outrights", () => {
     const preds = {
-      winner: "England",           // +15
+      winner: "England",           // +10
       runner_up: "Germany",        // +10
       golden_boot: "Norway|Erling Haaland", // +10
-      england_progress: "Winners", // +8
+      england_progress: "Winners", // +10
       total_goals: 140,            // +10
     };
     const r = scoreOutrights(preds, baseResults);
-    expect(r.points).toBe(53);
+    expect(r.points).toBe(50);
   });
 });
 
@@ -342,28 +362,28 @@ describe("scorePredictions", () => {
 
   it("aggregates standings points correctly", () => {
     const preds = {
-      "standings_A": ["Mexico", "South Korea", "South Africa", "Czech Republic"], // +10
-      "standings_L": ["England", "Croatia", "Ghana", "Panama"],                   // +10
+      "standings_A": ["Mexico", "South Korea", "South Africa", "Czech Republic"], // +12
+      "standings_L": ["England", "Croatia", "Ghana", "Panama"],                   // +12
     };
     const r = scorePredictions(preds, buildResults());
-    expect(r.standingsPoints).toBe(20);
+    expect(r.standingsPoints).toBe(24);
   });
 
   it("aggregates outright points correctly", () => {
     const preds = {
-      winner: "England",       // +15
-      england_progress: "Winners", // +8
+      winner: "England",       // +10
+      england_progress: "Winners", // +10
       total_goals: 140,        // +10
     };
     const r = scorePredictions(preds, buildResults());
-    expect(r.outrightPoints).toBe(33);
+    expect(r.outrightPoints).toBe(30);
   });
 
   it("total equals sum of match + standings + outright points", () => {
     const preds = {
       "Mexico-South Africa": { home: 2, away: 0 }, // 8
-      "standings_A": ["Mexico", "South Korea", "South Africa", "Czech Republic"], // 10
-      winner: "England", // 15
+      "standings_A": ["Mexico", "South Korea", "South Africa", "Czech Republic"], // 12
+      winner: "England", // 10
     };
     const r = scorePredictions(preds, buildResults());
     expect(r.total).toBe(r.matchPoints + r.standingsPoints + r.outrightPoints);

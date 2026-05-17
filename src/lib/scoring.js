@@ -4,20 +4,34 @@ import { matchPlayerName } from "./api-football";
 const PTS = {
   CORRECT_RESULT: 3,
   EXACT_SCORE: 5,
-  ANYTIME_SCORER: 4,
-  GROUP_WINNER: 6,
-  GROUP_RUNNER_UP: 4,
-  TOURNAMENT_WINNER: 15,
+  ANYTIME_SCORER: 3,
+  GROUP_POSITION: 3,
+  TOURNAMENT_WINNER: 10,
   TOURNAMENT_RUNNER_UP: 10,
-  TOURNAMENT_THIRD: 7,
+  TOURNAMENT_THIRD: 10,
   GOLDEN_BOOT: 10,
-  GOLDEN_GLOVE: 8,
-  BEST_YOUNG: 8,
+  GOLDEN_GLOVE: 10,
+  BEST_YOUNG: 10,
   HIGHEST_SCORING_TEAM: 10,
-  ENGLAND_PROGRESS: 8,
+  ENGLAND_PROGRESS: 10,
   STAT_EXACT: 10,
-  STAT_WITHIN_3: 5,
+  STAT_WITHIN_3: 10,
 };
+
+function awardMatches(actual, prediction) {
+  if (!actual || !prediction) return false;
+  if (typeof actual === "string") {
+    if (actual === prediction) return true;
+    const actualPlayer = actual.includes("|") ? actual.split("|").slice(1).join("|") : actual;
+    return matchPlayerName(actualPlayer, prediction);
+  }
+  if (typeof actual === "object") {
+    if (typeof actual.key === "string" && awardMatches(actual.key, prediction)) return true;
+    if (typeof actual.value === "string" && awardMatches(actual.value, prediction)) return true;
+    return matchPlayerName(actual.player || actual.name, prediction);
+  }
+  return false;
+}
 
 /**
  * Score a single match prediction against an actual result.
@@ -82,14 +96,11 @@ export function scoreGroupStandings(predicted, actual) {
   let points = 0;
   const breakdown = [];
 
-  if (predicted[0] && predicted[0] === actual[0]) {
-    points += PTS.GROUP_WINNER;
-    breakdown.push({ label: `${predicted[0]} group winner`, pts: PTS.GROUP_WINNER });
-  }
-
-  if (predicted[1] && predicted[1] === actual[1]) {
-    points += PTS.GROUP_RUNNER_UP;
-    breakdown.push({ label: `${predicted[1]} group runner-up`, pts: PTS.GROUP_RUNNER_UP });
+  for (let i = 0; i < Math.min(predicted.length, actual.length); i += 1) {
+    if (predicted[i] && predicted[i] === actual[i]) {
+      points += PTS.GROUP_POSITION;
+      breakdown.push({ label: `${predicted[i]} group position ${i + 1}`, pts: PTS.GROUP_POSITION });
+    }
   }
 
   return { points, breakdown };
@@ -132,7 +143,26 @@ export function scoreOutrights(preds, results) {
     }
   }
 
-  // Golden Glove, Best Young — require award data; scored when available via API/manual.
+  const awards = results.awards || {};
+  const goldenGlove =
+    tournamentResults?.goldenGlove ??
+    tournamentResults?.golden_glove ??
+    awards.goldenGlove ??
+    awards.golden_glove;
+  if (preds.golden_glove && awardMatches(goldenGlove, preds.golden_glove)) {
+    points += PTS.GOLDEN_GLOVE;
+    breakdown.push({ label: "Golden Glove", pts: PTS.GOLDEN_GLOVE });
+  }
+
+  const bestYoung =
+    tournamentResults?.bestYoung ??
+    tournamentResults?.best_young ??
+    awards.bestYoung ??
+    awards.best_young;
+  if (preds.best_young && awardMatches(bestYoung, preds.best_young)) {
+    points += PTS.BEST_YOUNG;
+    breakdown.push({ label: "Best Young Player", pts: PTS.BEST_YOUNG });
+  }
 
   if (preds.top_scoring_team && results.stats?.topScoringTeam === preds.top_scoring_team) {
     points += PTS.HIGHEST_SCORING_TEAM;
