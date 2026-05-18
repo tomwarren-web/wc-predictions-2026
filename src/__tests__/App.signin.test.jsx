@@ -4,12 +4,14 @@ import App from "../App.jsx";
 import {
   ensureProfileFromAuthSession,
   fetchPredictionsRow,
+  supabase,
   signInWithPassword,
   updatePassword,
 } from "../lib/supabase.js";
 
 const FALLBACK_DEADLINE_MS = Date.parse("2026-06-11T21:00:00.000Z");
 const BEFORE_DEADLINE = FALLBACK_DEADLINE_MS - 7 * 24 * 60 * 60 * 1000;
+const STORAGE_KEY = "wc-predictions-2026";
 
 vi.mock("../lib/supabase.js", () => ({
   isSupabaseConfigured: true,
@@ -19,6 +21,7 @@ vi.mock("../lib/supabase.js", () => ({
       onAuthStateChange: vi.fn(() => ({
         data: { subscription: { unsubscribe: vi.fn() } },
       })),
+      signOut: vi.fn().mockResolvedValue({ error: null }),
     },
   },
   ensureSupabaseSession: vi.fn().mockResolvedValue({
@@ -59,6 +62,7 @@ beforeEach(() => {
   localStorage.clear();
   window.history.pushState({}, "", "/");
   signInWithPassword.mockResolvedValue({ ok: true });
+  supabase.auth.signOut.mockResolvedValue({ error: null });
   updatePassword.mockResolvedValue({ ok: true });
   fetchPredictionsRow.mockResolvedValue(null);
   ensureProfileFromAuthSession.mockResolvedValue({
@@ -115,6 +119,72 @@ describe("sign-in navigation", () => {
     });
 
     resolvePredictions(null);
+  });
+
+  it("signs out, returns to the landing page, and clears persisted entry state", async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("tab", { name: /sign in/i }));
+    fireEvent.change(screen.getByLabelText(/email address/i), {
+      target: { value: "player@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: "correct-password" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /matches/i })).toHaveAttribute("aria-selected", "true");
+    });
+    expect(localStorage.getItem(STORAGE_KEY)).toContain('"entered":true');
+
+    fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
+
+    await waitFor(() => {
+      expect(supabase.auth.signOut).toHaveBeenCalled();
+      expect(screen.getByRole("tab", { name: /sign in/i })).toBeInTheDocument();
+    });
+    expect(screen.queryByRole("tab", { name: /matches/i })).not.toBeInTheDocument();
+    expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  it("does not let stale sign-in hydration recreate local entry state after sign-out", async () => {
+    let resolvePredictions;
+    fetchPredictionsRow.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolvePredictions = resolve;
+      }),
+    );
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("tab", { name: /sign in/i }));
+    fireEvent.change(screen.getByLabelText(/email address/i), {
+      target: { value: "player@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: "correct-password" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /matches/i })).toHaveAttribute("aria-selected", "true");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /sign in/i })).toBeInTheDocument();
+    });
+
+    resolvePredictions({
+      predictions: { "Mexico-South Africa": { home: 1, away: 0, scorer: "" } },
+      updated_at: new Date().toISOString(),
+    });
+
+    await waitFor(() => {
+      expect(localStorage.getItem(STORAGE_KEY)).toBeNull();
+    });
+    expect(screen.queryByRole("tab", { name: /matches/i })).not.toBeInTheDocument();
   });
 
   it("shows a password reset form from the reset email link and updates the password", async () => {

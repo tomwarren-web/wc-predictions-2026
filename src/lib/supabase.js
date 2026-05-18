@@ -247,14 +247,33 @@ export async function signUpWithPassword({ email, password, name, username }) {
 
 export async function signInWithPassword({ email, password }) {
   if (!supabase) return { ok: false, error: friendlyAuthMessage(null, "not_configured"), errorCode: "not_configured" };
-  const { data, error } = await supabase.auth.signInWithPassword({ email: normalizeEmail(email), password });
-  if (error)
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(Object.assign(new Error("Request timed out"), { code: "timeout" })), 20000);
+  });
+  try {
+    const { data, error } = await Promise.race([
+      supabase.auth.signInWithPassword({ email: normalizeEmail(email), password }),
+      timeout,
+    ]);
+    if (error)
+      return {
+        ok: false,
+        error: friendlyAuthMessage(error.message, error.code),
+        errorCode: error.code,
+      };
+    return { ok: true, session: data.session, user: data.user };
+  } catch (err) {
     return {
       ok: false,
-      error: friendlyAuthMessage(error.message, error.code),
-      errorCode: error.code,
+      error: err.code === "timeout"
+        ? "Sign in timed out — check your connection and try again."
+        : friendlyAuthMessage(err.message, err.code),
+      errorCode: err.code || "network_error",
     };
-  return { ok: true, session: data.session, user: data.user };
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 export async function requestPasswordReset(email) {

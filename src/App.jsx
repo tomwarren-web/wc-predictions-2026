@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   isSupabaseConfigured,
   supabase,
@@ -2182,6 +2182,7 @@ export default function App() {
   const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
   const [passwordRecovery, setPasswordRecovery] = useState(() => hasPasswordRecoveryMarker());
   const [deadlineSettings, setDeadlineSettings] = useState(null);
+  const authFlowRef = useRef(0);
 
   useEffect(() => {
     const id = setInterval(() => setDeadlineTick((t) => t + 1), 1000);
@@ -2226,17 +2227,19 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
+    const loadFlow = authFlowRef.current;
+    const active = () => !cancelled && authFlowRef.current === loadFlow;
     (async () => {
       try {
         const params = new URLSearchParams(window.location.search);
         const isPasswordRecovery = hasPasswordRecoveryMarker();
-        if (isPasswordRecovery && !cancelled) {
+        if (isPasswordRecovery && active()) {
           setPasswordRecovery(true);
           setNeedsProfileCompletion(false);
           setScreen("signup");
         }
         const forceScreen = params.get("screen");
-        if (!isPasswordRecovery && forceScreen === "matches" && !cancelled) {
+        if (!isPasswordRecovery && forceScreen === "matches" && active()) {
           setScreen("matches");
           persistLocal(preds, "matches");
           params.delete("screen");
@@ -2248,10 +2251,10 @@ export default function App() {
         if (raw) {
           const local = JSON.parse(raw);
           localUpdatedAt = typeof local?.updatedAt === "string" ? local.updatedAt : null;
-          if (local?.predictions && typeof local.predictions === "object" && !cancelled) {
+          if (local?.predictions && typeof local.predictions === "object" && active()) {
             setPreds(local.predictions);
           }
-          if (!isPasswordRecovery && local?.entered && !cancelled) {
+          if (!isPasswordRecovery && local?.entered && active()) {
             setScreen(local.screen || "matches");
           }
         }
@@ -2265,16 +2268,16 @@ export default function App() {
               const ensured = await ensureProfileFromAuthSession();
               if (ensured.ok && ensured.profile) prof = ensured.profile;
             }
-            if (!cancelled && prof) setProfile(prof);
-            if (!cancelled && !prof) {
+            if (active() && prof) setProfile(prof);
+            if (active() && !prof) {
               setNeedsProfileCompletion(true);
               // A profile row can lag behind the auth session during sign-up.
               // Stay on the current screen and let the explicit auth handlers decide navigation.
-            } else if (!isPasswordRecovery && !cancelled && prof?.name && prof?.email) {
+            } else if (!isPasswordRecovery && active() && prof?.name && prof?.email) {
               setScreen((s) => (s === "signup" ? "matches" : s));
             }
             const row = await fetchPredictionsRow();
-            if (!cancelled && row?.predictions && typeof row.predictions === "object") {
+            if (active() && row?.predictions && typeof row.predictions === "object") {
               const localMs = localUpdatedAt ? Date.parse(localUpdatedAt) : 0;
               const serverMs = row.updated_at ? Date.parse(row.updated_at) : 0;
               if (localMs > serverMs) {
@@ -2375,6 +2378,7 @@ export default function App() {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
+        const eventFlow = authFlowRef.current;
         setCurrentUserId(session.user.id);
         if (event === "PASSWORD_RECOVERY" || hasPasswordRecoveryMarker()) {
           setPasswordRecovery(true);
@@ -2387,12 +2391,21 @@ export default function App() {
           const ensured = await ensureProfileFromAuthSession();
           if (ensured.ok && ensured.profile) prof = ensured.profile;
         }
+        if (authFlowRef.current !== eventFlow) return;
         setProfile(prof);
         // Only update completion flag — navigation is handled by the explicit
         // sign-in / sign-up handlers. Forcing setScreen here races with those
         // handlers and can undo a successful redirect.
         setNeedsProfileCompletion(!prof?.name || !prof?.email);
       } else {
+        if (event === "SIGNED_OUT") {
+          // Guard: a stale SIGNED_OUT can arrive after the user has already re-authenticated
+          // (e.g. when a slow sign-out call completes after the next sign-in). Check the live
+          // session first; if a new session exists the event is irrelevant.
+          const { data: { session: live } } = await supabase.auth.getSession();
+          if (live?.user) return;
+          authFlowRef.current += 1;
+        }
         // Session ended (sign-out / expiry) — return to signup screen
         setCurrentUserId(null);
         setProfile(null);
@@ -2507,16 +2520,21 @@ export default function App() {
       showToast(r.error);
       return { ok: false, error: r.error };
     }
+    const signInFlow = authFlowRef.current + 1;
+    authFlowRef.current = signInFlow;
+    setPasswordRecovery(false);
     // Navigate immediately; profile and prediction hydration can finish in the background.
     enterPredictionsAfterAuth({ allowAfterDeadline: true });
     void (async () => {
       try {
         const row = await fetchPredictionsRow();
+        if (authFlowRef.current !== signInFlow) return;
         if (row?.predictions && typeof row.predictions === "object") {
           setPreds(row.predictions);
           persistLocal(row.predictions, "matches");
         }
         const ensured = await ensureProfileFromAuthSession();
+        if (authFlowRef.current !== signInFlow) return;
         if (ensured.ok && ensured.profile) {
           setProfile(ensured.profile);
           const incomplete = !ensured.profile.name || !ensured.profile.email;
@@ -2644,9 +2662,15 @@ export default function App() {
   ] : [];
 
   const handleSignOut = async () => {
+    authFlowRef.current += 1;
     localStorage.removeItem(STORAGE_KEY);
     try {
-      if (supabase) await supabase.auth.signOut();
+      if (supabase) {
+        await Promise.race([
+          supabase.auth.signOut(),
+          new Promise((resolve) => setTimeout(resolve, 10000)),
+        ]);
+      }
     } catch (e) {
       console.warn("Sign out:", e);
     } finally {
@@ -2656,6 +2680,7 @@ export default function App() {
       setCurrentUserId(null);
       setResults(null);
       setNeedsProfileCompletion(false);
+      setPasswordRecovery(false);
       setScreen("signup");
     }
   };
