@@ -3,7 +3,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@20.4.0?target=deno";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ENTRY_AMOUNT_PENCE = 1000;
 const ENTRY_CURRENCY = "gbp";
 const ONE_HOUR_MS = 60 * 60 * 1000;
@@ -48,6 +47,25 @@ function parseIsoMs(value: string | undefined | null) {
   if (!value) return null;
   const ms = Date.parse(value);
   return Number.isNaN(ms) ? null : ms;
+}
+
+function getSupabaseServiceKey() {
+  const legacy = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (legacy) return legacy;
+  const singleSecret = Deno.env.get("SUPABASE_SECRET_KEY");
+  if (singleSecret) return singleSecret;
+  const secretKeys = Deno.env.get("SUPABASE_SECRET_KEYS");
+  if (secretKeys) {
+    try {
+      const parsed = JSON.parse(secretKeys);
+      if (typeof parsed.default === "string") return parsed.default;
+      const first = Object.values(parsed).find((value) => typeof value === "string");
+      if (typeof first === "string") return first;
+    } catch {
+      console.warn("SUPABASE_SECRET_KEYS was not valid JSON");
+    }
+  }
+  return null;
 }
 
 function envSubmissionDeadlineMs() {
@@ -105,7 +123,7 @@ serve(async (req) => {
       return new Response(
         JSON.stringify({
           error:
-            "STRIPE_SECRET_KEY is not set on the server. In Supabase: Project Settings → Edge Functions → Secrets.",
+            "STRIPE_SECRET_KEY is not set on the server. In Supabase: Project Settings -> Edge Functions -> Secrets.",
         }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
@@ -119,6 +137,14 @@ serve(async (req) => {
         status: 401,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
+    }
+
+    const supabaseServiceKey = getSupabaseServiceKey();
+    if (!supabaseServiceKey) {
+      return new Response(
+        JSON.stringify({ error: "Supabase service key is not configured on the server." }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -171,7 +197,7 @@ serve(async (req) => {
     const entryDeadlineMs = await getSubmissionDeadlineMs(supabase);
     if (Date.now() >= entryDeadlineMs) {
       return new Response(
-        JSON.stringify({ error: "Submissions are closed — payment is no longer available." }),
+        JSON.stringify({ error: "Submissions are closed - payment is no longer available." }),
         {
           status: 403,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -217,7 +243,7 @@ serve(async (req) => {
             currency: ENTRY_CURRENCY,
             product_data: {
               name: "World Cup 2026 Prediction League Entry",
-              description: "£10 entry fee — 80% prize pool, 20% organiser and hosting costs",
+              description: "GBP 10 entry fee - 80% prize pool, 20% organiser and hosting costs",
             },
             unit_amount: ENTRY_AMOUNT_PENCE,
           },

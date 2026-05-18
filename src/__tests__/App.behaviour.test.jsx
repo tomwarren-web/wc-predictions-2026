@@ -122,14 +122,48 @@ describe("Pre-deadline — entries open", () => {
     });
   });
 
-  it("advances through prediction sections after saving", async () => {
+  it("warns and blocks section navigation when predictions have not been saved", async () => {
+    await renderApp();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+
+    try {
+      const [firstScoreInput] = await screen.findAllByRole("spinbutton");
+      fireEvent.change(firstScoreInput, { target: { value: "2" } });
+
+      expect(screen.getByText(/unsaved changes in matches/i)).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("tab", { name: /standings/i }));
+
+      expect(confirmSpy).toHaveBeenCalledWith(expect.stringMatching(/unsaved changes in Matches/i));
+      expect(screen.getByRole("tab", { name: /matches/i })).toHaveAttribute("aria-selected", "true");
+    } finally {
+      confirmSpy.mockRestore();
+    }
+  });
+
+  it("advances through groups before moving to the next prediction section", async () => {
     await renderApp();
 
     fireEvent.click(screen.getByRole("button", { name: /save predictions/i }));
     await waitFor(() => {
-      expect(screen.getByRole("tab", { name: /standings/i })).toHaveAttribute("aria-selected", "true");
+      expect(screen.getByRole("tab", { name: /matches/i })).toHaveAttribute("aria-selected", "true");
+      expect(screen.getByRole("button", { name: /group b/i })).toHaveClass("active");
     });
 
+    fireEvent.click(screen.getByRole("button", { name: /group l/i }));
+    fireEvent.click(screen.getByRole("button", { name: /save predictions/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /standings/i })).toHaveAttribute("aria-selected", "true");
+      expect(screen.getByRole("button", { name: /group a/i })).toHaveClass("active");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /save predictions/i }));
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /standings/i })).toHaveAttribute("aria-selected", "true");
+      expect(screen.getByRole("button", { name: /group b/i })).toHaveClass("active");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /group l/i }));
     fireEvent.click(screen.getByRole("button", { name: /save predictions/i }));
     await waitFor(() => {
       expect(screen.getByRole("tab", { name: /outrights/i })).toHaveAttribute("aria-selected", "true");

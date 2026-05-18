@@ -4,7 +4,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")!;
 const FROM_EMAIL = Deno.env.get("FROM_EMAIL") || "WC Predictions <noreply@yourdomain.com>";
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const SERVICE_ALLOWED_TYPES = new Set([
   "welcome",
   "payment_confirmation",
@@ -14,6 +13,25 @@ const SERVICE_ALLOWED_TYPES = new Set([
   "tournament_complete",
 ]);
 const USER_ALLOWED_TYPES = new Set(["welcome"]);
+
+function getSupabaseServiceKey() {
+  const legacy = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (legacy) return legacy;
+  const singleSecret = Deno.env.get("SUPABASE_SECRET_KEY");
+  if (singleSecret) return singleSecret;
+  const secretKeys = Deno.env.get("SUPABASE_SECRET_KEYS");
+  if (secretKeys) {
+    try {
+      const parsed = JSON.parse(secretKeys);
+      if (typeof parsed.default === "string") return parsed.default;
+      const first = Object.values(parsed).find((value) => typeof value === "string");
+      if (typeof first === "string") return first;
+    } catch {
+      console.warn("SUPABASE_SECRET_KEYS was not valid JSON");
+    }
+  }
+  return null;
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -183,6 +201,14 @@ serve(async (req) => {
   }
 
   try {
+    const supabaseServiceKey = getSupabaseServiceKey();
+    if (!supabaseServiceKey) {
+      return new Response(JSON.stringify({ error: "Supabase service key is not configured on the server." }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     if (req.method !== "POST") {
       return new Response(JSON.stringify({ error: "Method not allowed" }), {
         status: 405,

@@ -3,10 +3,28 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "https://esm.sh/stripe@20.4.0?target=deno";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const ENTRY_AMOUNT_PENCE = 1000;
 const ENTRY_CURRENCY = "gbp";
 const STRIPE_API_VERSION = "2026-02-25.clover";
+
+function getSupabaseServiceKey() {
+  const legacy = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  if (legacy) return legacy;
+  const singleSecret = Deno.env.get("SUPABASE_SECRET_KEY");
+  if (singleSecret) return singleSecret;
+  const secretKeys = Deno.env.get("SUPABASE_SECRET_KEYS");
+  if (secretKeys) {
+    try {
+      const parsed = JSON.parse(secretKeys);
+      if (typeof parsed.default === "string") return parsed.default;
+      const first = Object.values(parsed).find((value) => typeof value === "string");
+      if (typeof first === "string") return first;
+    } catch {
+      console.warn("SUPABASE_SECRET_KEYS was not valid JSON");
+    }
+  }
+  return null;
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -20,9 +38,10 @@ serve(async (req) => {
     return json({ error: "Method not allowed" }, 405);
   }
 
+  const supabaseServiceKey = getSupabaseServiceKey();
   const stripeKey = Deno.env.get("STRIPE_SECRET_KEY");
   const endpointSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET");
-  if (!stripeKey?.startsWith("sk_") || !endpointSecret) {
+  if (!supabaseServiceKey || !stripeKey?.startsWith("sk_") || !endpointSecret) {
     console.error("Stripe webhook secrets are not configured");
     return json({ error: "Webhook is not configured" }, 503);
   }

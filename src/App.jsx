@@ -27,8 +27,6 @@ import heroImg from "./assets/hero.png";
 const STORAGE_KEY = "wc-predictions-2026";
 const ENTRY_FEE_GBP = 10;
 const NEXT_PREDICTION_SCREEN = {
-  matches: "standings",
-  standings: "outrights",
   outrights: "submit",
 };
 const COST_PERCENT = Math.min(
@@ -81,6 +79,56 @@ const TEAMS = {
   K: ["Portugal","DR Congo","Uzbekistan","Colombia"],
   L: ["England","Croatia","Ghana","Panama"],
 };
+
+const GROUP_IDS = Object.keys(TEAMS);
+const PREDICTION_SCREENS = ["matches", "standings", "outrights"];
+const SECTION_LABELS = {
+  matches: "Matches",
+  standings: "Standings",
+  outrights: "Outrights",
+};
+
+function getNextGroup(activeGroup) {
+  const index = GROUP_IDS.indexOf(activeGroup);
+  return index >= 0 && index < GROUP_IDS.length - 1 ? GROUP_IDS[index + 1] : null;
+}
+
+function clonePredictions(predictions) {
+  return JSON.parse(JSON.stringify(predictions || {}));
+}
+
+function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function pickPredictionsForSection(predictions, section) {
+  const source = predictions || {};
+  const entries = Object.entries(source).filter(([key]) => {
+    if (section === "matches") return key.includes("-") && !key.startsWith("standings_");
+    if (section === "standings") return key.startsWith("standings_");
+    if (section === "outrights") return !key.includes("-") && !key.startsWith("standings_");
+    return false;
+  });
+  return Object.fromEntries(entries);
+}
+
+function hasUnsavedPredictionChanges(predictions, savedPredictions, section) {
+  return stableStringify(pickPredictionsForSection(predictions, section)) !==
+    stableStringify(pickPredictionsForSection(savedPredictions, section));
+}
+
+function hasAnyUnsavedPredictionChanges(predictions, savedPredictions) {
+  return PREDICTION_SCREENS.some((section) =>
+    hasUnsavedPredictionChanges(predictions, savedPredictions, section)
+  );
+}
 
 /** ISO 3166-1 alpha-2 or flag-icons regional codes (e.g. gb-eng) for SVG flags. */
 const TEAM_FLAG_CODE = {
@@ -451,6 +499,7 @@ const css = `
   .btn-pay svg { width: 20px; height: 20px; }
 
   .locked-banner { background: rgba(201,168,76,0.06); border: 1px solid rgba(201,168,76,0.25); padding: 10px 16px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: ${COLORS.gold}; font-family: 'Barlow', sans-serif; font-weight: 600; }
+  .unsaved-banner { background: rgba(255,152,0,0.08); border: 1px solid rgba(255,152,0,0.32); padding: 10px 16px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: #ffb74d; font-family: 'Barlow', sans-serif; font-weight: 700; }
 
   .deadline-banner { background: rgba(30,40,60,0.35); border-bottom: 1px solid rgba(201,168,76,0.2); padding: 10px 1.5rem; font-family: 'Barlow', sans-serif; font-size: 0.78rem; font-weight: 600; color: #b8c4d9; text-align: center; letter-spacing: 0.3px; }
   .deadline-banner strong { color: ${COLORS.gold}; font-weight: 800; }
@@ -1471,9 +1520,8 @@ function SignupScreen({
   );
 }
 
-function MatchesScreen({ preds, setPreds, results, readOnly }) {
-  const [activeGroup, setActiveGroup] = useState("A");
-  const groups = Object.keys(TEAMS);
+function MatchesScreen({ preds, setPreds, results, readOnly, activeGroup, setActiveGroup }) {
+  const groups = GROUP_IDS;
   const groupDone = (g) => {
     const matches = GROUP_MATCHES.filter(m => m.group === g);
     return matches.every(m => {
@@ -1598,9 +1646,8 @@ function MatchesScreen({ preds, setPreds, results, readOnly }) {
   );
 }
 
-function StandingsScreen({ preds, setPreds, readOnly }) {
-  const groups = Object.keys(TEAMS);
-  const [activeGroup, setActiveGroup] = useState("A");
+function StandingsScreen({ preds, setPreds, readOnly, activeGroup, setActiveGroup }) {
+  const groups = GROUP_IDS;
   const groupPred = preds[`standings_${activeGroup}`] || [];
 
   const setSlot = (pos, team) => {
@@ -2182,6 +2229,9 @@ export default function App() {
   const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
   const [passwordRecovery, setPasswordRecovery] = useState(() => hasPasswordRecoveryMarker());
   const [deadlineSettings, setDeadlineSettings] = useState(null);
+  const [activeMatchGroup, setActiveMatchGroup] = useState(GROUP_IDS[0]);
+  const [activeStandingsGroup, setActiveStandingsGroup] = useState(GROUP_IDS[0]);
+  const [savedPreds, setSavedPreds] = useState({});
   const authFlowRef = useRef(0);
 
   useEffect(() => {
@@ -2217,6 +2267,26 @@ export default function App() {
     minute: "2-digit",
   });
   const predictionsReadOnly = Boolean(profile?.locked || submissionClosed);
+  const currentSectionHasUnsavedChanges = useMemo(
+    () => !predictionsReadOnly &&
+      PREDICTION_SCREENS.includes(screen) &&
+      hasUnsavedPredictionChanges(preds, savedPreds, screen),
+    [preds, savedPreds, screen, predictionsReadOnly],
+  );
+  const hasUnsavedChanges = useMemo(
+    () => !predictionsReadOnly && hasAnyUnsavedPredictionChanges(preds, savedPreds),
+    [preds, savedPreds, predictionsReadOnly],
+  );
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return;
+    const handleBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   // Redirect off leaderboard if entry hasn't closed yet (tab is hidden, but guard against direct state)
   useEffect(() => {
@@ -2253,6 +2323,7 @@ export default function App() {
           localUpdatedAt = typeof local?.updatedAt === "string" ? local.updatedAt : null;
           if (local?.predictions && typeof local.predictions === "object" && active()) {
             setPreds(local.predictions);
+            markPredictionsSaved(local.predictions);
           }
           if (!isPasswordRecovery && local?.entered && active()) {
             setScreen(local.screen || "matches");
@@ -2284,6 +2355,7 @@ export default function App() {
                 showToast("Kept your newer local edits — save again to sync them online.");
               } else {
                 setPreds(row.predictions);
+                markPredictionsSaved(row.predictions);
               }
             }
           }
@@ -2426,6 +2498,10 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
+  const markPredictionsSaved = (nextPreds) => {
+    setSavedPreds(clonePredictions(nextPreds));
+  };
+
   const persistLocal = (nextPreds, nextScreen) => {
     localStorage.setItem(
       STORAGE_KEY,
@@ -2436,6 +2512,7 @@ export default function App() {
         updatedAt: new Date().toISOString(),
       }),
     );
+    markPredictionsSaved(nextPreds);
   };
 
   const showToast = (msg) => {
@@ -2539,6 +2616,7 @@ export default function App() {
         if (authFlowRef.current !== signInFlow) return;
         if (row?.predictions && typeof row.predictions === "object") {
           setPreds(row.predictions);
+          markPredictionsSaved(row.predictions);
           persistLocal(row.predictions, "matches");
         }
         const ensured = await ensureProfileFromAuthSession();
@@ -2669,7 +2747,44 @@ export default function App() {
     { id: "rules", label: "Rules" },
   ] : [];
 
+  const confirmLeavingUnsavedSection = () => {
+    if (!currentSectionHasUnsavedChanges) return true;
+    const sectionLabel = SECTION_LABELS[screen] || "this section";
+    const confirmed = window.confirm(
+      `You have unsaved changes in ${sectionLabel}. Continue without saving first? Your edits may be lost if you close the browser or sign out before saving.`,
+    );
+    if (!confirmed) showToast("Save your predictions before leaving this section.");
+    return confirmed;
+  };
+
+  const handleScreenChange = (nextScreen) => {
+    if (nextScreen === screen) return;
+    if (!confirmLeavingUnsavedSection()) return;
+    setScreen(nextScreen);
+  };
+
+  const handleMatchGroupChange = (nextGroup) => {
+    if (nextGroup === activeMatchGroup) return;
+    if (!confirmLeavingUnsavedSection()) return;
+    setActiveMatchGroup(nextGroup);
+  };
+
+  const handleStandingsGroupChange = (nextGroup) => {
+    if (nextGroup === activeStandingsGroup) return;
+    if (!confirmLeavingUnsavedSection()) return;
+    setActiveStandingsGroup(nextGroup);
+  };
+
   const handleSignOut = async () => {
+    if (hasUnsavedChanges) {
+      const confirmed = window.confirm(
+        "You have unsaved prediction changes. Sign out without saving first?",
+      );
+      if (!confirmed) {
+        showToast("Save your predictions before signing out.");
+        return;
+      }
+    }
     authFlowRef.current += 1;
     localStorage.removeItem(STORAGE_KEY);
     try {
@@ -2689,6 +2804,9 @@ export default function App() {
       setResults(null);
       setNeedsProfileCompletion(false);
       setPasswordRecovery(false);
+      setActiveMatchGroup(GROUP_IDS[0]);
+      setActiveStandingsGroup(GROUP_IDS[0]);
+      setSavedPreds({});
       setScreen("signup");
     }
   };
@@ -2696,11 +2814,28 @@ export default function App() {
   const handleSave = async (options = {}) => {
     const silentSuccess = options?.silentSuccess === true;
     const currentScreen = screen;
-    const nextScreen = options?.advanceOnSave ? NEXT_PREDICTION_SCREEN[currentScreen] : null;
+    const nextTarget = options?.advanceOnSave ? (() => {
+      if (currentScreen === "matches") {
+        const nextGroup = getNextGroup(activeMatchGroup);
+        return nextGroup
+          ? { screen: "matches", matchGroup: nextGroup }
+          : { screen: "standings", standingsGroup: GROUP_IDS[0] };
+      }
+      if (currentScreen === "standings") {
+        const nextGroup = getNextGroup(activeStandingsGroup);
+        return nextGroup
+          ? { screen: "standings", standingsGroup: nextGroup }
+          : { screen: "outrights" };
+      }
+      const nextScreen = NEXT_PREDICTION_SCREEN[currentScreen];
+      return nextScreen ? { screen: nextScreen } : null;
+    })() : null;
     const advanceAfterLocalSave = () => {
-      if (!nextScreen) return;
-      setScreen(nextScreen);
-      persistLocal(preds, nextScreen);
+      if (!nextTarget) return;
+      if (nextTarget.matchGroup) setActiveMatchGroup(nextTarget.matchGroup);
+      if (nextTarget.standingsGroup) setActiveStandingsGroup(nextTarget.standingsGroup);
+      setScreen(nextTarget.screen);
+      persistLocal(preds, nextTarget.screen);
     };
     if (profile?.locked || Date.now() >= getSubmissionDeadlineMs(results, deadlineSettings)) {
       const error = "Predictions are locked — no changes can be saved.";
@@ -2756,7 +2891,7 @@ export default function App() {
           <nav className="nav" aria-label="Prediction sections">
             <div className="nav-tabs-scroll" role="tablist">
               {tabs.map(t => (
-                <button key={t.id} type="button" role="tab" aria-selected={screen === t.id} className={`nav-btn${screen === t.id ? " active" : ""}`} onClick={() => setScreen(t.id)}>
+                <button key={t.id} type="button" role="tab" aria-selected={screen === t.id} className={`nav-btn${screen === t.id ? " active" : ""}`} onClick={() => handleScreenChange(t.id)}>
                   {t.label}
                 </button>
               ))}
@@ -2808,8 +2943,25 @@ export default function App() {
           </div>
         )}
 
-        {screen === "matches" && <MatchesScreen preds={preds} setPreds={predictionsReadOnly ? () => {} : setPreds} results={results} readOnly={predictionsReadOnly} />}
-        {screen === "standings" && <StandingsScreen preds={preds} setPreds={predictionsReadOnly ? () => {} : setPreds} readOnly={predictionsReadOnly} />}
+        {screen === "matches" && (
+          <MatchesScreen
+            preds={preds}
+            setPreds={predictionsReadOnly ? () => {} : setPreds}
+            results={results}
+            readOnly={predictionsReadOnly}
+            activeGroup={activeMatchGroup}
+            setActiveGroup={handleMatchGroupChange}
+          />
+        )}
+        {screen === "standings" && (
+          <StandingsScreen
+            preds={preds}
+            setPreds={predictionsReadOnly ? () => {} : setPreds}
+            readOnly={predictionsReadOnly}
+            activeGroup={activeStandingsGroup}
+            setActiveGroup={handleStandingsGroupChange}
+          />
+        )}
         {screen === "outrights" && <OutrightsScreen preds={preds} setPreds={predictionsReadOnly ? () => {} : setPreds} readOnly={predictionsReadOnly} />}
         {screen === "submit" && <SubmitScreen preds={preds} profile={profile} onPay={handlePayment} paymentLoading={paymentLoading} submissionClosed={submissionClosed} />}
         {screen === "leaderboard" && <LeaderboardScreen results={results} allUsers={allUsers} currentUserId={currentUserId} submissionClosed={submissionClosed} />}
@@ -2817,6 +2969,11 @@ export default function App() {
 
         {screen !== "signup" && screen !== "leaderboard" && screen !== "rules" && screen !== "submit" && !predictionsReadOnly && (
           <div style={{ padding: "0 1.5rem", marginTop: "8px" }}>
+            {currentSectionHasUnsavedChanges && (
+              <div className="unsaved-banner" role="status">
+                Unsaved changes in {SECTION_LABELS[screen] || "this section"} - click Save Predictions before leaving.
+              </div>
+            )}
             <button type="button" className="btn-primary" onClick={() => handleSave({ advanceOnSave: true })}>Save Predictions</button>
           </div>
         )}
@@ -2826,4 +2983,3 @@ export default function App() {
     </>
   );
 }
-
