@@ -2376,7 +2376,11 @@ export default function App() {
     if (!supabase) return;
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      // IMPORTANT: this callback must return synchronously (no top-level await).
+      // Supabase's _notifyAllSubscribers awaits every callback via Promise.all, so any
+      // async work here blocks signInWithPassword from resolving — causing our timeout to
+      // fire even though the HTTP 200 has already arrived. All DB work is fire-and-forget.
       if (session?.user) {
         const eventFlow = authFlowRef.current;
         setCurrentUserId(session.user.id);
@@ -2386,34 +2390,37 @@ export default function App() {
           setScreen("signup");
           return;
         }
-        let prof = await fetchProfile();
-        if (!prof) {
-          const ensured = await ensureProfileFromAuthSession();
-          if (ensured.ok && ensured.profile) prof = ensured.profile;
-        }
-        if (authFlowRef.current !== eventFlow) return;
-        setProfile(prof);
-        // Only update completion flag — navigation is handled by the explicit
-        // sign-in / sign-up handlers. Forcing setScreen here races with those
-        // handlers and can undo a successful redirect.
-        setNeedsProfileCompletion(!prof?.name || !prof?.email);
+        void (async () => {
+          let prof = await fetchProfile();
+          if (!prof) {
+            const ensured = await ensureProfileFromAuthSession();
+            if (ensured.ok && ensured.profile) prof = ensured.profile;
+          }
+          if (authFlowRef.current !== eventFlow) return;
+          setProfile(prof);
+          setNeedsProfileCompletion(!prof?.name || !prof?.email);
+        })();
       } else {
         if (event === "SIGNED_OUT") {
-          // Guard: a stale SIGNED_OUT can arrive after the user has already re-authenticated
-          // (e.g. when a slow sign-out call completes after the next sign-in). Check the live
-          // session first; if a new session exists the event is irrelevant.
-          const { data: { session: live } } = await supabase.auth.getSession();
-          if (live?.user) return;
-          authFlowRef.current += 1;
+          // Guard: a stale SIGNED_OUT can arrive after the user has already re-authenticated.
+          // Also fire-and-forget so signOut itself isn't blocked by the getSession check.
+          void (async () => {
+            const { data: { session: live } } = await supabase.auth.getSession();
+            if (live?.user) return;
+            authFlowRef.current += 1;
+            setCurrentUserId(null);
+            setProfile(null);
+            setNeedsProfileCompletion(false);
+            setPasswordRecovery(false);
+            setScreen("signup");
+          })();
+          return;
         }
-        // Session ended (sign-out / expiry) — return to signup screen
+        // Other session-ending events (token expiry, user deletion, etc.)
         setCurrentUserId(null);
         setProfile(null);
         setNeedsProfileCompletion(false);
         setPasswordRecovery(false);
-        if (event === "SIGNED_OUT") {
-          setScreen("signup");
-        }
       }
     });
     return () => subscription.unsubscribe();
@@ -2523,6 +2530,7 @@ export default function App() {
     const signInFlow = authFlowRef.current + 1;
     authFlowRef.current = signInFlow;
     setPasswordRecovery(false);
+    clearAuthUrlParams();
     // Navigate immediately; profile and prediction hydration can finish in the background.
     enterPredictionsAfterAuth({ allowAfterDeadline: true });
     void (async () => {
