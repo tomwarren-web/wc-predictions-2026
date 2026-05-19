@@ -29,6 +29,7 @@ vi.mock("../lib/supabase.js", () => ({
   fetchTournamentSettings: vi.fn().mockResolvedValue(null),
   createCheckoutSession: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
   checkPaymentStatus: vi.fn().mockResolvedValue({ paid: false }),
+  confirmPaymentStatus: vi.fn().mockResolvedValue({ paid: false }),
   sendEmail: vi.fn().mockResolvedValue({ ok: false }),
   signUpWithPassword: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
   signInWithPassword: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),

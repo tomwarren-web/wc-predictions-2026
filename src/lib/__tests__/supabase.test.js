@@ -7,7 +7,7 @@
  * and the no-op paths when Supabase is not configured.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { friendlyAuthMessage } from "../supabase.js";
+import { friendlyAuthMessage, publicLeaderboardProfile } from "../supabase.js";
 
 // ─── Mock @supabase/supabase-js ───────────────────────────────────────────────
 
@@ -338,5 +338,29 @@ describe("fetchAllPredictions return shape", () => {
       expect(u).toHaveProperty("profile");
       expect(u).toHaveProperty("predictions");
     }
+  });
+
+  it("keeps email addresses out of public leaderboard profile names", () => {
+    const profile = publicLeaderboardProfile(
+      { name: "alice@example.com", username: "alice@example.com", paid: true },
+      { name: "Alice Smith", username: "alice" },
+    );
+
+    expect(profile.name).toBe("Alice Smith");
+    expect(profile.username).toBe("alice");
+    expect(profile.paid).toBe(true);
+    expect(profile).not.toHaveProperty("email");
+  });
+
+  it("returns empty display fields rather than exposing email-only profiles", () => {
+    const profile = publicLeaderboardProfile({
+      name: "bob@example.com",
+      username: "bob@example.com",
+      paid: true,
+    });
+
+    expect(profile.name).toBe("");
+    expect(profile.username).toBe("");
+    expect(profile.paid).toBe(true);
   });
 });

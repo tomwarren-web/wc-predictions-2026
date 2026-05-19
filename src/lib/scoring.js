@@ -178,6 +178,17 @@ export function scoreOutrights(preds, results) {
     breakdown.push({ label: "England progress", pts: PTS.ENGLAND_PROGRESS });
   }
 
+  return { points, breakdown };
+}
+
+/**
+ * Score numeric/stat-style predictions.
+ */
+export function scoreStats(preds, results) {
+  if (!preds || !results) return { points: 0, breakdown: [] };
+
+  let points = 0;
+  const breakdown = [];
   const actualTotalGoals = results.stats?.totalGoals;
   const predGoals = Number(preds.total_goals);
   if (!isNaN(predGoals) && actualTotalGoals !== null && actualTotalGoals !== undefined) {
@@ -227,21 +238,23 @@ export function scorePredictions(preds, results) {
     standingsBreakdown = standingsBreakdown.concat(breakdown);
   }
 
-  // Score outrights (includes total tournament goals for points + leaderboard tiebreaker)
+  // Score outrights
   const { points: outrightPoints, breakdown: outrightBreakdown } = scoreOutrights(preds, results);
+  const { points: statsPoints, breakdown: statsBreakdown } = scoreStats(preds, results);
 
-  const total = matchPoints + standingsPoints + outrightPoints;
+  const total = matchPoints + standingsPoints + outrightPoints + statsPoints;
 
   return {
     total,
     matchPoints,
     standingsPoints,
     outrightPoints,
-    statsPoints: 0,
+    statsPoints,
     breakdown: [
       ...matchBreakdown,
       ...standingsBreakdown,
       ...outrightBreakdown,
+      ...statsBreakdown,
     ],
   };
 }

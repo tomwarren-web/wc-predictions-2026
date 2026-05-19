@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { scoreMatch, scoreGroupStandings, scoreOutrights, scorePredictions } from "../scoring.js";
+import { scoreMatch, scoreGroupStandings, scoreOutrights, scoreStats, scorePredictions } from "../scoring.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -188,7 +188,7 @@ describe("scoreGroupStandings", () => {
 
 // ─── scoreOutrights ──────────────────────────────────────────────────────────
 
-describe("scoreOutrights", () => {
+describe("scoreOutrights and scoreStats", () => {
   const baseResults = {
     tournamentResults: { winner: "England", runnerUp: "Germany", third: "France" },
     topScorers: [
@@ -243,22 +243,22 @@ describe("scoreOutrights", () => {
   });
 
   it("+10 for exact total goals", () => {
-    const r = scoreOutrights({ total_goals: 140 }, baseResults);
+    const r = scoreStats({ total_goals: 140 }, baseResults);
     expect(r.points).toBe(10);
   });
 
   it("+10 for total goals within ±3", () => {
-    const r = scoreOutrights({ total_goals: 143 }, baseResults);
+    const r = scoreStats({ total_goals: 143 }, baseResults);
     expect(r.points).toBe(10);
   });
 
   it("+10 for total goals within ±3 (under)", () => {
-    const r = scoreOutrights({ total_goals: 137 }, baseResults);
+    const r = scoreStats({ total_goals: 137 }, baseResults);
     expect(r.points).toBe(10);
   });
 
   it("0 for total goals more than 3 away", () => {
-    const r = scoreOutrights({ total_goals: 144 }, baseResults);
+    const r = scoreStats({ total_goals: 144 }, baseResults);
     expect(r.points).toBe(0);
   });
 
@@ -300,10 +300,9 @@ describe("scoreOutrights", () => {
       runner_up: "Germany",        // +10
       golden_boot: "Norway|Erling Haaland", // +10
       england_progress: "Winners", // +10
-      total_goals: 140,            // +10
     };
     const r = scoreOutrights(preds, baseResults);
-    expect(r.points).toBe(50);
+    expect(r.points).toBe(40);
   });
 });
 
@@ -343,6 +342,7 @@ describe("scorePredictions", () => {
     expect(r.matchPoints).toBe(0);
     expect(r.standingsPoints).toBe(0);
     expect(r.outrightPoints).toBe(0);
+    expect(r.statsPoints).toBe(0);
   });
 
   it("returns all-zero object for null results", () => {
@@ -376,17 +376,18 @@ describe("scorePredictions", () => {
       total_goals: 140,        // +10
     };
     const r = scorePredictions(preds, buildResults());
-    expect(r.outrightPoints).toBe(30);
+    expect(r.outrightPoints).toBe(20);
+    expect(r.statsPoints).toBe(10);
   });
 
-  it("total equals sum of match + standings + outright points", () => {
+  it("total equals sum of match + standings + outright + stats points", () => {
     const preds = {
       "Mexico-South Africa": { home: 2, away: 0 }, // 8
       "standings_A": ["Mexico", "South Korea", "South Africa", "Czech Republic"], // 12
       winner: "England", // 10
     };
     const r = scorePredictions(preds, buildResults());
-    expect(r.total).toBe(r.matchPoints + r.standingsPoints + r.outrightPoints);
+    expect(r.total).toBe(r.matchPoints + r.standingsPoints + r.outrightPoints + r.statsPoints);
   });
 
   it("handles predictions with no match keys gracefully", () => {

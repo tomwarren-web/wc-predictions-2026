@@ -9,5 +9,11 @@ verify_jwt = false
 [functions.create-checkout]
 verify_jwt = false
 
+[functions.confirm-payment]
+verify_jwt = false
+
+[functions.leaderboard-entries]
+verify_jwt = false
+
 [functions.stripe-webhook]
 verify_jwt = false

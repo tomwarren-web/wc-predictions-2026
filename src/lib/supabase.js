@@ -88,6 +88,26 @@ function cleanText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function looksLikeEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanText(value));
+}
+
+function firstPublicDisplayText(...values) {
+  for (const value of values) {
+    const text = cleanText(value);
+    if (text && !looksLikeEmail(text)) return text;
+  }
+  return "";
+}
+
+export function publicLeaderboardProfile(profile, fallback = {}) {
+  return {
+    name: firstPublicDisplayText(profile?.name, fallback?.name),
+    username: firstPublicDisplayText(profile?.username, fallback?.username),
+    paid: Boolean(profile?.paid ?? fallback?.paid),
+  };
+}
+
 function normalizeEmail(email) {
   return cleanText(email).toLowerCase();
 }
@@ -293,7 +313,8 @@ export async function requestPasswordReset(email) {
 // ── Profile ──────────────────────────────────────────────────────────────────
 // Supabase Auth owns credentials. The DB trigger creates public.profiles; the
 // client only updates editable profile fields or repairs old rows missing one.
-// Stripe webhook (checkout.session.completed) sets paid=true and locked=true.
+// Stripe webhook (checkout.session.completed) sets paid=true. The deadline
+// setting, not payment, decides when predictions become locked.
 
 export async function updatePassword(password) {
   if (!supabase) return { ok: false, error: friendlyAuthMessage(null, "not_configured"), errorCode: "not_configured" };
@@ -469,6 +490,26 @@ export async function fetchPredictionsRow() {
 
 export async function fetchAllPredictions() {
   if (!supabase) return [];
+  const { data: leaderboardData, error: leaderboardError } = await supabase.functions.invoke("leaderboard-entries", {
+    body: {},
+    timeout: 20_000,
+  });
+
+  if (!leaderboardError && Array.isArray(leaderboardData?.entries)) {
+    return leaderboardData.entries.map((entry) => ({
+      ...entry,
+      profile: publicLeaderboardProfile(entry?.profile),
+    }));
+  }
+
+  if (leaderboardError instanceof FunctionsHttpError && leaderboardError.context?.status === 403) {
+    return [];
+  }
+
+  if (leaderboardError && import.meta.env.DEV) {
+    console.warn("[leaderboard-entries]", leaderboardError.message);
+  }
+
   const { data, error } = await supabase
     .from("wc_predictions")
     .select("id, profile, predictions");
@@ -476,7 +517,10 @@ export async function fetchAllPredictions() {
     if (!isWcPredictionsMissingError(error)) console.warn("fetchAllPredictions:", error.message);
     return [];
   }
-  return data || [];
+  return (data || []).map((entry) => ({
+    ...entry,
+    profile: publicLeaderboardProfile(entry?.profile),
+  }));
 }
 
 export async function fetchTournamentSettings() {
@@ -748,12 +792,15 @@ export async function createCheckoutSession() {
 
   if (error) {
     let message = error.message || "Checkout request failed";
+    let responseBody = null;
     if (error instanceof FunctionsHttpError && error.context) {
       try {
         const ct = error.context.headers.get("content-type") || "";
         if (ct.includes("application/json")) {
-          const body = await error.context.json();
-          if (body?.error && typeof body.error === "string") message = body.error;
+          responseBody = await error.context.json();
+          if (responseBody?.error && typeof responseBody.error === "string") {
+            message = responseBody.error;
+          }
         }
       } catch {
         /* ignore parse errors */
@@ -763,15 +810,94 @@ export async function createCheckoutSession() {
       message = `Could not reach payment service: ${error.message}`;
     }
     console.warn("[create-checkout]", message);
-    return { ok: false, error: message };
+    return {
+      ok: false,
+      error: message,
+      paid: Boolean(responseBody?.paid),
+      locked: Boolean(responseBody?.locked),
+      checkoutInProgress: Boolean(responseBody?.checkoutInProgress),
+    };
   }
 
-  if (data?.error) return { ok: false, error: data.error, paid: data.paid };
-  if (data?.url && typeof data.url === "string") return { ok: true, url: data.url };
+  if (data?.error) {
+    return {
+      ok: false,
+      error: data.error,
+      paid: Boolean(data.paid),
+      locked: Boolean(data.locked),
+      checkoutInProgress: Boolean(data.checkoutInProgress),
+    };
+  }
+  if (data?.url && typeof data.url === "string") {
+    return { ok: true, url: data.url, checkoutInProgress: Boolean(data.checkoutInProgress) };
+  }
   return { ok: false, error: "No checkout URL returned — is the create-checkout function deployed?" };
 }
 
-export async function checkPaymentStatus() {
+async function readFunctionError(error, fallback) {
+  let message = error?.message || fallback;
+  let responseBody = null;
+  if (error instanceof FunctionsHttpError && error.context) {
+    try {
+      const ct = error.context.headers.get("content-type") || "";
+      if (ct.includes("application/json")) {
+        responseBody = await error.context.json();
+        if (responseBody?.error && typeof responseBody.error === "string") {
+          message = responseBody.error;
+        }
+      }
+    } catch {
+      /* ignore parse errors */
+    }
+  }
+  if (error instanceof FunctionsFetchError) {
+    message = `Could not reach payment service: ${error.message}`;
+  }
+  return { message, responseBody };
+}
+
+export async function confirmPaymentStatus(sessionId) {
+  if (!supabase) return { paid: false };
+  const session = await ensureSupabaseSession();
+  if (!session?.access_token) return { paid: false };
+
+  const body = {};
+  if (typeof sessionId === "string" && sessionId.trim()) {
+    body.sessionId = sessionId.trim();
+  }
+
+  const { data, error } = await supabase.functions.invoke("confirm-payment", {
+    body,
+    timeout: 45_000,
+  });
+
+  if (error) {
+    const { message, responseBody } = await readFunctionError(error, "Payment confirmation failed");
+    console.warn("[confirm-payment]", message);
+    return {
+      paid: Boolean(responseBody?.paid),
+      locked: Boolean(responseBody?.locked),
+      error: message,
+    };
+  }
+
+  if (data?.error) {
+    return {
+      paid: Boolean(data.paid),
+      locked: Boolean(data.locked),
+      error: data.error,
+    };
+  }
+
+  return {
+    paid: Boolean(data?.paid),
+    locked: Boolean(data?.locked),
+    repaired: Boolean(data?.repaired),
+    emailSent: Boolean(data?.emailSent),
+  };
+}
+
+export async function checkPaymentStatus({ reconcile = true } = {}) {
   if (!supabase) return { paid: false };
   const session = await ensureSupabaseSession();
   if (!session?.user?.id) return { paid: false };
@@ -784,7 +910,9 @@ export async function checkPaymentStatus() {
     .limit(1)
     .maybeSingle();
 
-  return { paid: Boolean(data) };
+  if (data) return { paid: true };
+  if (!reconcile) return { paid: false };
+  return confirmPaymentStatus();
 }
 
 // ── Email ────────────────────────────────────────────────────────────────────

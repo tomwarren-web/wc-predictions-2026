@@ -17,10 +17,13 @@ interface WebhookDeps {
   updatePayment: (sessionId: string, data: Record<string, unknown>) => Promise<void>;
   updateProfile: (userId: string, data: Record<string, unknown>) => Promise<void>;
   getProfile: (userId: string) => Promise<{ email: string; name: string; paid?: boolean; locked?: boolean } | null>;
+  shouldLockForDeadline: () => Promise<boolean>;
+  hasSentPaymentEmail: (userId: string) => Promise<boolean>;
   sendEmail: (to: string, type: string, data: Record<string, unknown>) => Promise<void>;
   getPaymentByIntent: (intentId: string) => Promise<{ user_id: string } | null>;
   markPaymentRefunded: (intentId: string) => Promise<void>;
   markPaymentExpired: (sessionId: string) => Promise<void>;
+  appUrl?: string;
 }
 
 async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Response> {
@@ -57,19 +60,19 @@ async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Response>
     }
 
     const profileBeforeLock = await deps.getProfile(userId);
-    const shouldSendConfirmation =
-      payment.status !== "completed" || !profileBeforeLock?.paid || !profileBeforeLock?.locked;
-
     await deps.updatePayment(obj.id as string, {
       status: "completed",
       stripe_payment_intent_id: obj.payment_intent,
       completed_at: new Date().toISOString(),
     });
-    await deps.updateProfile(userId, { paid: true, locked: true });
+    await deps.updateProfile(userId, { paid: true, locked: await deps.shouldLockForDeadline() });
 
-    if (shouldSendConfirmation) {
+    if (!(await deps.hasSentPaymentEmail(userId))) {
       if (profileBeforeLock?.email) {
-        await deps.sendEmail(profileBeforeLock.email, "payment_confirmation", { name: profileBeforeLock.name });
+        await deps.sendEmail(profileBeforeLock.email, "payment_confirmation", {
+          name: profileBeforeLock.name,
+          appUrl: deps.appUrl || "",
+        });
       }
     }
   }
@@ -143,10 +146,13 @@ const validDeps = (): WebhookDeps & { calls: Record<string, unknown[]> } => {
     updatePayment: async (id, data) => { calls.updatePayment.push({ id, data }); },
     updateProfile: async (uid, data) => { calls.updateProfile.push({ uid, data }); },
     getProfile: async (_uid) => ({ email: "user@example.com", name: "Test User" }),
+    shouldLockForDeadline: async () => false,
+    hasSentPaymentEmail: async (_uid) => false,
     sendEmail: async (to, type, data) => { calls.sendEmail.push({ to, type, data }); },
     getPaymentByIntent: async (_id) => ({ user_id: "user-abc-123" }),
     markPaymentRefunded: async (id) => { calls.markPaymentRefunded.push({ id }); },
     markPaymentExpired: async (id) => { calls.markPaymentExpired.push({ id }); },
+    appUrl: "https://example.com",
   };
 };
 
@@ -174,7 +180,7 @@ Deno.test("invalid signature (constructEvent throws) returns 400", async () => {
   assertEquals(text.includes("Webhook Error"), true);
 });
 
-Deno.test("checkout.session.completed → sets paid:true and locked:true on profile", async () => {
+Deno.test("checkout.session.completed → sets paid:true without locking before deadline", async () => {
   const deps = validDeps();
   const res = await handleWebhook(makeWebhookRequest(checkoutCompletedEvent), deps);
   assertEquals(res.status, 200);
@@ -185,8 +191,19 @@ Deno.test("checkout.session.completed → sets paid:true and locked:true on prof
   assertEquals(profileUpdate !== undefined, true);
   const call = profileUpdate as { uid: string; data: Record<string, unknown> };
   assertEquals(call.data.paid, true);
-  assertEquals(call.data.locked, true);
+  assertEquals(call.data.locked, false);
   assertEquals(call.uid, "user-abc-123");
+});
+
+Deno.test("checkout.session.completed → locks profile when deadline is closed", async () => {
+  const deps = validDeps();
+  deps.shouldLockForDeadline = async () => true;
+
+  await handleWebhook(makeWebhookRequest(checkoutCompletedEvent), deps);
+
+  const call = deps.calls.updateProfile[0] as { data: Record<string, unknown> };
+  assertEquals(call.data.paid, true);
+  assertEquals(call.data.locked, true);
 });
 
 Deno.test("checkout.session.completed → marks payment as completed", async () => {
@@ -204,9 +221,11 @@ Deno.test("checkout.session.completed → triggers payment_confirmation email", 
   await handleWebhook(makeWebhookRequest(checkoutCompletedEvent), deps);
 
   assertEquals(deps.calls.sendEmail.length, 1);
-  const email = deps.calls.sendEmail[0] as { to: string; type: string };
+  const email = deps.calls.sendEmail[0] as { to: string; type: string; data: Record<string, unknown> };
   assertEquals(email.to, "user@example.com");
   assertEquals(email.type, "payment_confirmation");
+  assertEquals(email.data.name, "Test User");
+  assertEquals(email.data.appUrl, "https://example.com");
 });
 
 Deno.test("checkout.session.completed retry sends email when payment completed before profile lock", async () => {
@@ -223,6 +242,7 @@ Deno.test("checkout.session.completed retry skips duplicate email when payment a
   const deps = validDeps();
   deps.getPaymentBySession = async (_id) => ({ user_id: "user-abc-123", status: "completed" });
   deps.getProfile = async (_uid) => ({ email: "user@example.com", name: "Test User", paid: true, locked: true });
+  deps.hasSentPaymentEmail = async (_uid) => true;
 
   await handleWebhook(makeWebhookRequest(checkoutCompletedEvent), deps);
 

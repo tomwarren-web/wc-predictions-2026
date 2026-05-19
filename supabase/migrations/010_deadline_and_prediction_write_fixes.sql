@@ -3,7 +3,7 @@
 -- ============================================================================
 -- Adds a small public settings table for tournament dates, points entries_are_closed()
 -- at that setting, and makes every prediction write policy enforce both the
--- entry deadline and paid/locked state.
+-- entry deadline and profile locked state.
 -- ============================================================================
 
 create table if not exists public.app_settings (
@@ -65,7 +65,7 @@ revoke all on function public.entries_are_closed() from public;
 grant execute on function public.entry_deadline_at() to anon, authenticated, service_role;
 grant execute on function public.entries_are_closed() to anon, authenticated, service_role;
 
--- Normalized prediction writes: owner only, before deadline only, unpaid/unlocked only.
+-- Normalized prediction writes: owner only, before deadline only, unlocked only.
 drop policy if exists "mp_insert_own" on public.match_predictions;
 drop policy if exists "mp_update_own" on public.match_predictions;
 drop policy if exists "mp_delete_own" on public.match_predictions;

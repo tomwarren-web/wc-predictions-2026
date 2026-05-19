@@ -36,6 +36,7 @@ vi.mock("../lib/supabase.js", () => ({
   fetchTournamentSettings: vi.fn().mockResolvedValue(null),
   createCheckoutSession: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
   checkPaymentStatus: vi.fn().mockResolvedValue({ paid: false }),
+  confirmPaymentStatus: vi.fn().mockResolvedValue({ paid: false }),
   sendEmail: vi.fn().mockResolvedValue({ ok: true }),
   signUpWithPassword: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
   signInWithPassword: vi.fn().mockResolvedValue({ ok: true }),
@@ -119,6 +120,39 @@ describe("sign-in navigation", () => {
     });
 
     resolvePredictions(null);
+  });
+
+  it("hides the payment tab and screen once the signed-in profile is already paid", async () => {
+    ensureProfileFromAuthSession.mockResolvedValue({
+      ok: true,
+      profile: {
+        id: "user-abc",
+        email: "player@example.com",
+        name: "Paid Player",
+        username: "paidplayer",
+        paid: true,
+        locked: false,
+      },
+    });
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("tab", { name: /sign in/i }));
+    fireEvent.change(screen.getByLabelText(/email address/i), {
+      target: { value: "player@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: "correct-password" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /matches/i })).toHaveAttribute("aria-selected", "true");
+      expect(screen.queryByRole("tab", { name: /submit/i })).not.toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /leaderboard/i })).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/submit & pay/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/entry paid/i)).toBeInTheDocument();
   });
 
   it("signs out, returns to the landing page, and clears persisted entry state", async () => {

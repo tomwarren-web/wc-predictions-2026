@@ -6,6 +6,7 @@ const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const ENTRY_AMOUNT_PENCE = 1000;
 const ENTRY_CURRENCY = "gbp";
 const STRIPE_API_VERSION = "2026-02-25.clover";
+const appUrl = Deno.env.get("APP_URL") || "";
 
 function getSupabaseServiceKey() {
   const legacy = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -31,6 +32,58 @@ function json(body: unknown, status = 200) {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+async function shouldLockForDeadline(supabase: any) {
+  const { data, error } = await supabase.rpc("entries_are_closed");
+  if (error) {
+    console.warn("Could not check entries_are_closed while confirming payment:", error.message);
+    return false;
+  }
+  return Boolean(data);
+}
+
+async function sendPaymentConfirmationIfNeeded(
+  supabase: any,
+  userId: string,
+  fallbackProfile?: { email?: string; name?: string } | null,
+) {
+  const { data: existingEmail, error: emailLogError } = await supabase
+    .from("email_log")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("email_type", "payment_confirmation")
+    .eq("status", "sent")
+    .limit(1)
+    .maybeSingle();
+
+  if (emailLogError) {
+    console.error("Payment confirmation email log lookup failed:", emailLogError.message);
+  }
+  if (existingEmail) return;
+
+  const profile = fallbackProfile?.email
+    ? fallbackProfile
+    : (await supabase
+        .from("profiles")
+        .select("email, name")
+        .eq("id", userId)
+        .single()).data;
+
+  if (!profile?.email) return;
+
+  const { error } = await supabase.functions.invoke("send-email", {
+    body: {
+      to: profile.email,
+      type: "payment_confirmation",
+      data: { name: profile.name, appUrl },
+      userId,
+    },
+  });
+
+  if (error) {
+    console.error("Failed to send payment confirmation email:", error.message);
+  }
 }
 
 serve(async (req) => {
@@ -108,14 +161,11 @@ serve(async (req) => {
       return json({ received: true, ignored: "payment_row_mismatch" });
     }
 
-    const alreadyCompleted = existingPayment.status === "completed";
     const { data: profileBeforeLock } = await supabase
       .from("profiles")
       .select("email, name, paid, locked")
       .eq("id", userId)
       .maybeSingle();
-    const shouldSendConfirmation =
-      !alreadyCompleted || !profileBeforeLock?.paid || !profileBeforeLock?.locked;
 
     const { error: updatePaymentError } = await supabase
       .from("payments")
@@ -134,40 +184,18 @@ serve(async (req) => {
 
     const { error: updateProfileError } = await supabase
       .from("profiles")
-      .update({ paid: true, locked: true })
+      .update({ paid: true, locked: await shouldLockForDeadline(supabase) })
       .eq("id", userId);
 
     if (updateProfileError) {
-      console.error("Profile lock update failed:", updateProfileError.message);
-      return json({ error: "Profile lock failed" }, 500);
+      console.error("Profile paid update failed:", updateProfileError.message);
+      return json({ error: "Profile update failed" }, 500);
     }
 
-    // Trigger payment confirmation email after the profile has been locked.
-    // If a previous webhook attempt completed the payment row but failed here,
-    // this retry should still send the email once the profile is made paid+locked.
-    if (shouldSendConfirmation) {
-      try {
-        const profile = profileBeforeLock?.email
-          ? profileBeforeLock
-          : (await supabase
-              .from("profiles")
-              .select("email, name")
-              .eq("id", userId)
-              .single()).data;
-
-        if (profile?.email) {
-          await supabase.functions.invoke("send-email", {
-            body: {
-              to: profile.email,
-              type: "payment_confirmation",
-              data: { name: profile.name },
-            },
-          });
-        }
-      } catch (emailErr) {
-        console.error("Failed to send payment confirmation email:", emailErr);
-      }
-    }
+    // Trigger payment confirmation email after the profile has been marked paid.
+    // The email log prevents duplicates while allowing webhook retries to repair
+    // a previously failed email send.
+    await sendPaymentConfirmationIfNeeded(supabase, userId, profileBeforeLock);
   }
 
   if (event.type === "checkout.session.expired") {

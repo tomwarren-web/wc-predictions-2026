@@ -11,6 +11,7 @@ import {
   fetchTournamentSettings,
   createCheckoutSession,
   checkPaymentStatus,
+  confirmPaymentStatus,
   sendEmail,
   signUpWithPassword,
   signInWithPassword,
@@ -128,6 +129,22 @@ function hasAnyUnsavedPredictionChanges(predictions, savedPredictions) {
   return PREDICTION_SCREENS.some((section) =>
     hasUnsavedPredictionChanges(predictions, savedPredictions, section)
   );
+}
+
+function cleanDisplayText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function looksLikeEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanDisplayText(value));
+}
+
+function getLeaderboardDisplayName(profile) {
+  const name = cleanDisplayText(profile?.name);
+  if (name && !looksLikeEmail(name)) return name;
+  const username = cleanDisplayText(profile?.username);
+  if (username && !looksLikeEmail(username)) return username;
+  return "Anonymous";
 }
 
 /** ISO 3166-1 alpha-2 or flag-icons regional codes (e.g. gb-eng) for SVG flags. */
@@ -499,6 +516,7 @@ const css = `
   .btn-pay svg { width: 20px; height: 20px; }
 
   .locked-banner { background: rgba(201,168,76,0.06); border: 1px solid rgba(201,168,76,0.25); padding: 10px 16px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: ${COLORS.gold}; font-family: 'Barlow', sans-serif; font-weight: 600; }
+  .paid-banner { background: rgba(76,175,80,0.07); border: 1px solid rgba(76,175,80,0.28); padding: 10px 16px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: #81c784; font-family: 'Barlow', sans-serif; font-weight: 700; }
   .unsaved-banner { background: rgba(255,152,0,0.08); border: 1px solid rgba(255,152,0,0.32); padding: 10px 16px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: #ffb74d; font-family: 'Barlow', sans-serif; font-weight: 700; }
 
   .deadline-banner { background: rgba(30,40,60,0.35); border-bottom: 1px solid rgba(201,168,76,0.2); padding: 10px 1.5rem; font-family: 'Barlow', sans-serif; font-size: 0.78rem; font-weight: 600; color: #b8c4d9; text-align: center; letter-spacing: 0.3px; }
@@ -1025,9 +1043,8 @@ function SignupScreen({
 
   const exampleEntryCount = 20;
   const examplePot = getPotBreakdown(exampleEntryCount);
-  const prizePercent = 100 - COST_PERCENT;
   const examplePrizeNote = COST_PERCENT > 0
-    ? `£${examplePot.prizePot.toFixed(0)} prize pool after ${COST_PERCENT}% costs`
+    ? `£${examplePot.prizePot.toFixed(0)} estimated prize pool after running costs`
     : "all entry fees go to prizes";
 
   return (
@@ -1047,7 +1064,7 @@ function SignupScreen({
           <div className="lp-hero-points" aria-label="Competition highlights">
             <span className="lp-hero-point">£10 entry</span>
             <span className="lp-hero-point">72 group match predictions</span>
-            <span className="lp-hero-point">{prizePercent}% prize pool</span>
+            <span className="lp-hero-point">Growing prize pool</span>
             <span className="lp-hero-point">Live scoring</span>
           </div>
           {!submissionClosed && countdownLabel && (
@@ -1094,7 +1111,7 @@ function SignupScreen({
           <div className="lp-intro-card">
             <div className="lp-intro-kicker">£</div>
             <div className="lp-intro-title">Prize pool to chase</div>
-            <div className="lp-intro-copy">Every paid entry grows the pot: {COST_PERCENT}% covers organiser and hosting costs, and {prizePercent}% goes into the prize pool.</div>
+            <div className="lp-intro-copy">Every paid entry grows the prize pool, with running costs handled before payouts.</div>
           </div>
         </div>
       </div>
@@ -1157,7 +1174,7 @@ function SignupScreen({
             <div className="lp-rule-num">2</div>
             <div className="lp-rule-copy">
               <strong>Pay to lock your entry</strong>
-              <span>The £10 entry fee confirms your place. {COST_PERCENT}% covers costs and the remaining {prizePercent}% goes into the prize pool.</span>
+              <span>The £10 entry fee confirms your place and adds to the competition prize fund.</span>
             </div>
           </div>
           <div className="lp-rule-line">
@@ -1255,7 +1272,7 @@ function SignupScreen({
         <div className="lp-section-line" />
         <div className="lp-section-sub">
           {COST_PERCENT > 0
-            ? `${COST_PERCENT}% is deducted from the gross pot for organiser and hosting costs, then the remaining prize pool is paid out. The more players, the bigger the prizes.`
+            ? "Entry fees build the gross pot, running costs are handled first, then the prize pool is paid out. The more players, the bigger the prizes."
             : "100% of entry fees go to the prize pool. The more players, the bigger the prizes."}
         </div>
         <div className="lp-prizes">
@@ -1279,11 +1296,6 @@ function SignupScreen({
             <span className="lp-prize-place">3rd Place</span>
             <span className="lp-prize-pct">10%</span>
           </div>
-          <div className="lp-prize-row">
-            <span className="lp-prize-medal">👟</span>
-            <span className="lp-prize-place">Closest Golden Boot</span>
-            <span className="lp-prize-pct">5%</span>
-          </div>
         </div>
       </div>
 
@@ -1295,7 +1307,7 @@ function SignupScreen({
           <div className="lp-faq">
             <FaqItem
               q="When do I need to submit my predictions?"
-              a="All predictions must be submitted and paid for at least one hour before the first tournament match kicks off. After that moment, new signups close and no one can edit predictions. Once you pay, your picks stay locked."
+              a="All predictions must be submitted and paid for at least one hour before the first tournament match kicks off. You can keep editing and saving after payment until that deadline. After that moment, new signups close and no one can edit predictions."
             />
             <FaqItem
               q="What if I don't fill in every prediction?"
@@ -1323,7 +1335,7 @@ function SignupScreen({
             />
             <FaqItem
               q="Where does the entry fee go?"
-              a={`Each entry is £10. ${COST_PERCENT}% goes toward organiser and hosting costs, and the remaining ${prizePercent}% goes into the prize pool before prize percentages are applied.`}
+              a="Each entry is £10. Running costs are handled before the prize pool is paid out, then prize percentages are applied."
             />
             <FaqItem
               q="Is the payment secure?"
@@ -1924,25 +1936,27 @@ function UserPredictionsPanel({ predictions }) {
   );
 }
 
-function LeaderboardScreen({ results, allUsers, currentUserId, submissionClosed }) {
+function LeaderboardScreen({ results, allUsers, currentUserId, submissionClosed, canViewLeaderboard }) {
   const [expandedId, setExpandedId] = useState(null);
+  const canRevealPredictions = submissionClosed;
 
   const hasResults = results && Object.values(results.matches || {}).some(
     m => m.isFinished || m.isLive
   );
 
   const scored = allUsers
-    .filter(u => u.profile?.name || u.profile?.username)
+    .filter(u => u?.id)
     .map(u => {
       const s = hasResults
         ? scorePredictions(u.predictions || {}, results)
         : { total: 0, matchPoints: 0, standingsPoints: 0, outrightPoints: 0, statsPoints: 0 };
       const rawGoals = Number(u.predictions?.total_goals);
       const totalGoalsPred = Number.isFinite(rawGoals) && rawGoals >= 50 ? rawGoals : null;
+      const displayName = getLeaderboardDisplayName(u.profile);
       return {
         id: u.id,
-        name: u.profile?.username || u.profile?.name || "Anonymous",
-        avatar: (u.profile?.username || u.profile?.name || "??").slice(0, 2).toUpperCase(),
+        name: displayName,
+        avatar: displayName.slice(0, 2).toUpperCase(),
         ...s,
         totalGoalsPred,
       };
@@ -1960,9 +1974,9 @@ function LeaderboardScreen({ results, allUsers, currentUserId, submissionClosed 
     });
 
   const entryCount = scored.length;
-  const { grossPot, costAmount, prizePot } = getPotBreakdown(entryCount);
+  const { prizePot } = getPotBreakdown(entryCount);
 
-  if (!submissionClosed) {
+  if (!canViewLeaderboard) {
     return (
       <div className="section">
         <div className="section-title">Leaderboard</div>
@@ -1983,7 +1997,9 @@ function LeaderboardScreen({ results, allUsers, currentUserId, submissionClosed 
       <div className="section-title">Leaderboard</div>
       <div className="section-title-line" />
       <div className="section-sub">
-        Live standings — updated after each match. Ties on points are broken by who is closest to the actual total tournament goals.
+        {submissionClosed
+          ? "Live standings — updated after each match. Ties on points are broken by who is closest to the actual total tournament goals."
+          : "Entry list and prize structure are visible because your entry is paid. Scores will appear once matches start; predictions stay hidden until the deadline."}
         {results?.hasLive && <span className="live-badge" style={{ marginLeft: 8 }}>● LIVE</span>}
       </div>
 
@@ -1991,9 +2007,11 @@ function LeaderboardScreen({ results, allUsers, currentUserId, submissionClosed 
         <div className="card" style={{ marginBottom: 12 }}>
           <div style={{ padding: 14, textAlign: "center" }}>
             <span style={{ fontSize: "0.82rem", color: "#666" }}>
-              {isApiFootballConfigured
-                ? "No match results yet — scores will update live once the tournament kicks off"
-                : "Connect API-Football to enable live scoring (see .env.example)"}
+              {submissionClosed
+                ? (isApiFootballConfigured
+                    ? "No match results yet — scores will update live once the tournament kicks off"
+                    : "Connect API-Football to enable live scoring (see .env.example)")
+                : "No scores yet. Everyone starts on 0 points until the tournament begins."}
             </span>
           </div>
         </div>
@@ -2009,14 +2027,17 @@ function LeaderboardScreen({ results, allUsers, currentUserId, submissionClosed 
             scored.map((p, i) => {
               const user = allUsers.find(u => u.id === p.id);
               const isExpanded = expandedId === p.id;
+              const canExpand = canRevealPredictions && Boolean(user);
               return (
                 <div key={p.id}>
                   <button
                     type="button"
-                    className={`lb-row clickable${p.id === currentUserId ? " lb-you" : ""}${isExpanded ? " expanded" : ""}`}
-                    onClick={() => setExpandedId(isExpanded ? null : p.id)}
-                    aria-expanded={isExpanded}
-                    title="Click to view predictions"
+                    className={`lb-row${canExpand ? " clickable" : ""}${p.id === currentUserId ? " lb-you" : ""}${isExpanded ? " expanded" : ""}`}
+                    onClick={() => {
+                      if (canExpand) setExpandedId(isExpanded ? null : p.id);
+                    }}
+                    aria-expanded={canExpand ? isExpanded : undefined}
+                    title={canExpand ? "Click to view predictions" : "Predictions are hidden until the deadline"}
                   >
                     <span className={`lb-rank${i === 0 ? " top1" : i === 1 ? " top2" : i === 2 ? " top3" : ""}`}>
                       {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`}
@@ -2024,18 +2045,17 @@ function LeaderboardScreen({ results, allUsers, currentUserId, submissionClosed 
                     <div className="lb-avatar">{p.avatar}</div>
                     <div style={{ flex: 1 }}>
                       <div className="lb-name">{p.name}</div>
-                      {hasResults && (
-                        <div className="lb-breakdown">
-                          <span className="lb-cat">Matches: <span>{p.matchPoints}</span></span>
-                          <span className="lb-cat">Groups: <span>{p.standingsPoints}</span></span>
-                          <span className="lb-cat">Outrights: <span>{p.outrightPoints}</span></span>
-                        </div>
-                      )}
+                      <div className="lb-breakdown" aria-label={`Score breakdown for ${p.name}`}>
+                        <span className="lb-cat">Matches: <span>{p.matchPoints}</span></span>
+                        <span className="lb-cat">Groups: <span>{p.standingsPoints}</span></span>
+                        <span className="lb-cat">Outrights: <span>{p.outrightPoints}</span></span>
+                        <span className="lb-cat">Stats: <span>{p.statsPoints}</span></span>
+                      </div>
                     </div>
                     <div className="lb-pts">{p.total}pts</div>
-                    <span className={`lb-chevron${isExpanded ? " open" : ""}`}>▼</span>
+                    {canExpand && <span className={`lb-chevron${isExpanded ? " open" : ""}`}>▼</span>}
                   </button>
-                  {isExpanded && user && (
+                  {canExpand && isExpanded && (
                     <UserPredictionsPanel predictions={user.predictions} />
                   )}
                 </div>
@@ -2057,7 +2077,7 @@ function LeaderboardScreen({ results, allUsers, currentUserId, submissionClosed 
             </div>
             {COST_PERCENT > 0 && (
               <div style={{ marginTop: 6, fontSize: "0.75rem", color: "#666", fontFamily: "'Noto Sans', sans-serif" }}>
-                Gross £{grossPot.toFixed(2)} − costs ({COST_PERCENT}%) £{costAmount.toFixed(2)}
+                Prize pool shown after running costs.
               </div>
             )}
           </div>
@@ -2065,7 +2085,6 @@ function LeaderboardScreen({ results, allUsers, currentUserId, submissionClosed 
             <div className="prize-row"><span>🥇 1st</span><span>£{(prizePot * 0.6).toFixed(2)}</span></div>
             <div className="prize-row"><span>🥈 2nd</span><span>£{(prizePot * 0.25).toFixed(2)}</span></div>
             <div className="prize-row"><span>🥉 3rd</span><span>£{(prizePot * 0.1).toFixed(2)}</span></div>
-            <div className="prize-row"><span>👟 Golden Boot closest</span><span>£{(prizePot * 0.05).toFixed(2)}</span></div>
           </div>
         </div>
       </div>
@@ -2100,9 +2119,6 @@ function SubmitScreen({ preds, profile, onPay, paymentLoading, submissionClosed 
     return preds[k] && preds[k] !== "";
   }).length;
 
-  const isPaid = profile?.paid;
-  const isLocked = profile?.locked;
-
   const sections = [
     { label: "Match Predictions", done: matchesDone, total: totalMatches },
     { label: "Group Standings", done: groupsDone, total: totalGroups },
@@ -2121,15 +2137,7 @@ function SubmitScreen({ preds, profile, onPay, paymentLoading, submissionClosed 
       <div className="section-sub">Review your predictions and lock them in with a £10 payment</div>
 
       <div className="submit-card">
-        {isPaid ? (
-          <div className="submit-paid">
-            <div className="submit-paid-icon">✅</div>
-            <div className="submit-paid-title">Payment Confirmed</div>
-            <div className="submit-paid-sub">
-              Your predictions are locked in. Good luck!
-            </div>
-          </div>
-        ) : submissionClosed ? (
+        {submissionClosed ? (
           <div className="submit-paid" style={{ borderColor: "rgba(229,115,115,0.35)", background: "rgba(229,115,115,0.06)" }}>
             <div className="submit-paid-title" style={{ color: "#e57373" }}>Submissions closed</div>
             <div className="submit-paid-sub">
@@ -2174,11 +2182,10 @@ function SubmitScreen({ preds, profile, onPay, paymentLoading, submissionClosed 
               <div className="prize-row"><span>🥇 1st place</span><span>60% of prize pot</span></div>
               <div className="prize-row"><span>🥈 2nd place</span><span>25% of prize pot</span></div>
               <div className="prize-row"><span>🥉 3rd place</span><span>10% of prize pot</span></div>
-              <div className="prize-row"><span>👟 Closest golden boot</span><span>5% of prize pot</span></div>
             </div>
             {COST_PERCENT > 0 && (
               <div style={{ textAlign: "center", marginBottom: 12, fontSize: "0.72rem", color: "#666" }}>
-                {COST_PERCENT}% is deducted from the gross pot for costs before prizes are allocated.
+                Prize payouts are calculated after running costs.
               </div>
             )}
 
@@ -2232,6 +2239,7 @@ export default function App() {
   const [activeMatchGroup, setActiveMatchGroup] = useState(GROUP_IDS[0]);
   const [activeStandingsGroup, setActiveStandingsGroup] = useState(GROUP_IDS[0]);
   const [savedPreds, setSavedPreds] = useState({});
+  const [paymentReturnPending, setPaymentReturnPending] = useState(false);
   const authFlowRef = useRef(0);
 
   useEffect(() => {
@@ -2266,7 +2274,9 @@ export default function App() {
     hour: "numeric",
     minute: "2-digit",
   });
-  const predictionsReadOnly = Boolean(profile?.locked || submissionClosed);
+  const leaderboardAvailable = submissionClosed || Boolean(profile?.paid);
+  const paidHomeScreen = submissionClosed ? "leaderboard" : "matches";
+  const predictionsReadOnly = Boolean(profile?.locked || submissionClosed || paymentReturnPending);
   const currentSectionHasUnsavedChanges = useMemo(
     () => !predictionsReadOnly &&
       PREDICTION_SCREENS.includes(screen) &&
@@ -2288,12 +2298,19 @@ export default function App() {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [hasUnsavedChanges]);
 
-  // Redirect off leaderboard if entry hasn't closed yet (tab is hidden, but guard against direct state)
+  // Redirect off leaderboard until the user has paid or entries have closed.
   useEffect(() => {
-    if (screen === "leaderboard" && !submissionClosed) {
+    if (screen === "leaderboard" && !leaderboardAvailable) {
       setScreen("matches");
     }
-  }, [screen, submissionClosed]);
+  }, [screen, leaderboardAvailable]);
+
+  // Paid users should not return to the payment screen, but can keep editing until the deadline.
+  useEffect(() => {
+    if (profile?.paid && screen === "submit") {
+      setScreen(paidHomeScreen);
+    }
+  }, [profile?.paid, screen, paidHomeScreen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2340,6 +2357,17 @@ export default function App() {
               if (ensured.ok && ensured.profile) prof = ensured.profile;
             }
             if (active() && prof) setProfile(prof);
+            if (prof && !prof.paid && active()) {
+              const confirmed = await confirmPaymentStatus();
+              if (active() && confirmed.paid) {
+                const repairedProfile = await fetchProfile();
+                if (repairedProfile) {
+                  prof = repairedProfile;
+                  setProfile(repairedProfile);
+                }
+                showToast("Payment confirmed — you can keep editing until the deadline.");
+              }
+            }
             if (active() && !prof) {
               setNeedsProfileCompletion(true);
               // A profile row can lag behind the auth session during sign-up.
@@ -2373,34 +2401,54 @@ export default function App() {
     let cancelled = false;
     const params = new URLSearchParams(window.location.search);
     const paymentStatus = params.get("payment");
+    const checkoutSessionId = params.get("session_id");
     if (paymentStatus === "success") {
-      showToast("Payment received — confirming your entry is locked...");
-      setScreen("submit");
+      showToast("Payment received — confirming your entry...");
+      setPaymentReturnPending(true);
+      setScreen(paidHomeScreen);
       (async () => {
         if (isSupabaseConfigured) {
+          if (checkoutSessionId) {
+            const confirmed = await confirmPaymentStatus(checkoutSessionId);
+            if (!cancelled && confirmed.paid) {
+              const latest = await fetchProfile();
+              if (latest) setProfile(latest);
+              showToast("Payment confirmed — you can keep editing until the deadline.");
+              setPaymentReturnPending(false);
+              return;
+            }
+          }
           for (let attempt = 0; attempt < 6 && !cancelled; attempt += 1) {
             const prof = await fetchProfile();
             if (prof) setProfile(prof);
-            if (prof?.paid && prof?.locked) {
-              showToast("Payment confirmed — predictions locked!");
+            if (prof?.paid) {
+              showToast("Payment confirmed — you can keep editing until the deadline.");
+              setPaymentReturnPending(false);
               return;
             }
             const status = await checkPaymentStatus();
             if (status.paid) {
               const latest = await fetchProfile();
               if (latest) setProfile(latest);
-              if (latest?.paid && latest?.locked) {
-                showToast("Payment confirmed — predictions locked!");
+              if (latest?.paid) {
+                showToast("Payment confirmed — you can keep editing until the deadline.");
+                setPaymentReturnPending(false);
                 return;
               }
             }
             await new Promise((resolve) => setTimeout(resolve, 1500));
           }
-          if (!cancelled) showToast("Payment is processing — refresh in a moment if your entry still shows unpaid.");
+          if (!cancelled) {
+            setPaymentReturnPending(false);
+            showToast("Payment is processing — refresh in a moment if your entry still shows unpaid.");
+          }
+        } else if (!cancelled) {
+          setPaymentReturnPending(false);
         }
       })();
       window.history.replaceState({}, "", window.location.pathname);
     } else if (paymentStatus === "cancelled") {
+      setPaymentReturnPending(false);
       showToast("Payment cancelled — you can try again");
       setScreen("submit");
       window.history.replaceState({}, "", window.location.pathname);
@@ -2711,8 +2759,21 @@ export default function App() {
       showToast("Submissions are closed — payment is no longer available.");
       return;
     }
+    if (profile?.paid || profile?.locked) {
+      showToast(profile?.locked ? "Predictions are locked — the deadline has passed." : "Already paid — you can keep editing until the deadline.");
+      setScreen(paidHomeScreen);
+      return;
+    }
     setPaymentLoading(true);
     try {
+      const latestBeforePay = await fetchProfile();
+      if (latestBeforePay) setProfile(latestBeforePay);
+      if (latestBeforePay?.paid || latestBeforePay?.locked) {
+        showToast(latestBeforePay?.locked ? "Predictions are locked — the deadline has passed." : "Already paid — you can keep editing until the deadline.");
+        setScreen(paidHomeScreen);
+        return;
+      }
+
       const saveResult = await handleSave({ silentSuccess: true });
       if (!saveResult.ok) {
         showToast(saveResult.error || "Save your predictions online before paying.");
@@ -2724,9 +2785,12 @@ export default function App() {
         return;
       }
       if (result.paid) {
-        showToast("Already paid — predictions are locked!");
+        showToast("Already paid — you can keep editing until the deadline.");
         const prof = await fetchProfile();
         if (prof) setProfile(prof);
+        setScreen(paidHomeScreen);
+      } else if (result.checkoutInProgress) {
+        showToast("Payment is already in progress — use the open checkout window or try again shortly.");
       } else {
         showToast(result.error || "Payment setup failed — try again");
       }
@@ -2742,8 +2806,8 @@ export default function App() {
     { id: "matches", label: "Matches" },
     { id: "standings", label: "Standings" },
     { id: "outrights", label: "Outrights" },
-    { id: "submit", label: profile?.paid ? "✓ Paid" : "Submit" },
-    ...(submissionClosed ? [{ id: "leaderboard", label: "Leaderboard" }] : []),
+    ...(profile?.paid ? [] : [{ id: "submit", label: "Submit" }]),
+    ...(leaderboardAvailable ? [{ id: "leaderboard", label: "Leaderboard" }] : []),
     { id: "rules", label: "Rules" },
   ] : [];
 
@@ -2759,6 +2823,10 @@ export default function App() {
 
   const handleScreenChange = (nextScreen) => {
     if (nextScreen === screen) return;
+    if (nextScreen === "submit" && profile?.paid) {
+      setScreen(paidHomeScreen);
+      return;
+    }
     if (!confirmLeavingUnsavedSection()) return;
     setScreen(nextScreen);
   };
@@ -2937,8 +3005,16 @@ export default function App() {
           <div className="section" style={{ paddingBottom: 0 }}>
             <div className="locked-banner">
               {profile?.locked
-                ? "🔒 Your predictions are locked — payment confirmed"
+                ? "🔒 Your predictions are locked — the entry deadline has passed"
                 : "🔒 Submissions are closed — the entry deadline has passed; predictions can no longer be edited"}
+            </div>
+          </div>
+        )}
+
+        {profile?.paid && !predictionsReadOnly && ["matches", "standings", "outrights"].includes(screen) && (
+          <div className="section" style={{ paddingBottom: 0 }}>
+            <div className="paid-banner">
+              Entry paid — you can keep editing and saving predictions until the deadline.
             </div>
           </div>
         )}
@@ -2963,8 +3039,16 @@ export default function App() {
           />
         )}
         {screen === "outrights" && <OutrightsScreen preds={preds} setPreds={predictionsReadOnly ? () => {} : setPreds} readOnly={predictionsReadOnly} />}
-        {screen === "submit" && <SubmitScreen preds={preds} profile={profile} onPay={handlePayment} paymentLoading={paymentLoading} submissionClosed={submissionClosed} />}
-        {screen === "leaderboard" && <LeaderboardScreen results={results} allUsers={allUsers} currentUserId={currentUserId} submissionClosed={submissionClosed} />}
+        {screen === "submit" && !profile?.paid && <SubmitScreen preds={preds} profile={profile} onPay={handlePayment} paymentLoading={paymentLoading} submissionClosed={submissionClosed} />}
+        {screen === "leaderboard" && (
+          <LeaderboardScreen
+            results={results}
+            allUsers={allUsers}
+            currentUserId={currentUserId}
+            submissionClosed={submissionClosed}
+            canViewLeaderboard={leaderboardAvailable}
+          />
+        )}
         {screen === "rules" && <RulesScreen />}
 
         {screen !== "signup" && screen !== "leaderboard" && screen !== "rules" && screen !== "submit" && !predictionsReadOnly && (

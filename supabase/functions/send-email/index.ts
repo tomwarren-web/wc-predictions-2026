@@ -93,19 +93,30 @@ const templates: Record<string, (data: Record<string, unknown>) => { subject: st
   }),
 
   payment_confirmation: (d) => ({
-    subject: "Payment Confirmed — You're Locked In!",
+    subject: "Entry Confirmed - Predictions Submitted",
     html: `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; padding: 32px; background: #0a0f1a; color: #e5e7eb;">
         <div style="text-align: center; margin-bottom: 24px;">
           <h1 style="color: #facc15; font-size: 28px; margin: 0;">WC Predictions 2026</h1>
         </div>
         <p style="font-size: 18px; color: #fff;">Thanks ${escapeHtml(d.name)}!</p>
-        <p>Your <strong>£10 entry</strong> has been received and your predictions are now <strong>locked in</strong>.</p>
+        <p>Your <strong>£10 entry</strong> has been received. Your predictions have been <strong>submitted</strong>, and you can keep editing them until the entry deadline.</p>
         <div style="background: #1a2332; border-radius: 12px; padding: 20px; margin: 24px 0; border-left: 4px solid #22c55e;">
-          <p style="margin: 0; color: #22c55e; font-weight: 600;">✓ Payment confirmed</p>
-          <p style="margin: 8px 0 0; color: #9ca3af;">Your predictions cannot be changed now. Sit back and enjoy the tournament!</p>
+          <p style="margin: 0; color: #22c55e; font-weight: 600;">Entry confirmed</p>
+          <p style="margin: 8px 0 0; color: #9ca3af;">Your place is paid for. If you change any picks before the deadline, just save them again.</p>
         </div>
-        <p>We'll send you updates as matches are played and the leaderboard changes.</p>
+        <div style="background: #111827; border-radius: 12px; padding: 20px; margin: 24px 0;">
+          <p style="color: #facc15; font-weight: 700; margin: 0 0 12px;">How to keep track</p>
+          <ol style="line-height: 1.8; padding-left: 20px; margin: 0; color: #d1d5db;">
+            <li>Sign in any time before the deadline to review or edit your predictions.</li>
+            <li>Once entries close, predictions lock and the <strong>Leaderboard</strong> tab will appear so everyone can see the standings.</li>
+            <li>During the tournament, points and rankings update as match results come in.</li>
+            <li>Open the leaderboard to follow your rank, points breakdown, prize race, and other players' picks.</li>
+          </ol>
+        </div>
+        <div style="text-align: center; margin: 32px 0;">
+          <a href="${safeUrl(d.appUrl)}" style="display: inline-block; padding: 14px 32px; background: #facc15; color: #0a0f1a; font-weight: 700; border-radius: 8px; text-decoration: none; font-size: 16px;">Review Predictions</a>
+        </div>
         <p style="color: #9ca3af; font-size: 13px;">Good luck!</p>
       </div>
     `,

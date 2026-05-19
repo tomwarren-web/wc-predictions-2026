@@ -19,12 +19,16 @@ interface SendEmailDeps {
 
 const EMAIL_TEMPLATES: Record<string, (d: Record<string, unknown>) => { subject: string; html: string }> = {
   welcome: (d) => ({ subject: "Welcome to WC Predictions 2026!", html: `<p>Hey ${d.name}</p>` }),
-  payment_confirmation: (_d) => ({ subject: "Payment Confirmed!", html: "<p>Confirmed</p>" }),
+  payment_confirmation: (d) => ({
+    subject: "Entry Confirmed - Predictions Submitted",
+    html: `<p>Entry confirmed</p><p>edit until the entry deadline</p><p>${d.appUrl || ""}</p>`,
+  }),
   predictions_locked: (_d) => ({ subject: "Predictions Locked!", html: "<p>Locked</p>" }),
   matchday_recap: (_d) => ({ subject: "Match Day Recap", html: "<p>Recap</p>" }),
   weekly_standings: (_d) => ({ subject: "Weekly Standings", html: "<p>Standings</p>" }),
   tournament_complete: (_d) => ({ subject: "Tournament Complete!", html: "<p>Done</p>" }),
 };
+const SERVICE_ALLOWED_TYPES = new Set(Object.keys(EMAIL_TEMPLATES));
 const USER_ALLOWED_TYPES = new Set(["welcome"]);
 
 const corsHeaders = {
@@ -47,8 +51,12 @@ async function handleSendEmail(req: Request, deps: SendEmailDeps): Promise<Respo
   }
 
   const token = authHeader.replace("Bearer ", "");
-  const { user, error: authErr } = await deps.getUser(token);
-  if (authErr || !user) {
+  const isServiceCall = token === "service-role-token";
+  const authResult = isServiceCall
+    ? { user: null, error: null }
+    : await deps.getUser(token);
+  const { user, error: authErr } = authResult;
+  if (!isServiceCall && (authErr || !user)) {
     return new Response(JSON.stringify({ error: "Unauthorized" }), {
       status: 401,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -72,23 +80,32 @@ async function handleSendEmail(req: Request, deps: SendEmailDeps): Promise<Respo
     });
   }
   const u = user as { id: string; email?: string };
-  if (!USER_ALLOWED_TYPES.has(type)) {
-    return new Response(JSON.stringify({ error: `Email type not allowed: ${type}` }), {
-      status: 403,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-  if (!u.email || String(to).trim().toLowerCase() !== u.email.toLowerCase()) {
-    return new Response(JSON.stringify({ error: "Email recipient must match the signed-in user." }), {
-      status: 403,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  }
-  if (userId && userId !== u.id) {
-    return new Response(JSON.stringify({ error: "userId must match the signed-in user." }), {
-      status: 403,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  if (isServiceCall) {
+    if (!SERVICE_ALLOWED_TYPES.has(type)) {
+      return new Response(JSON.stringify({ error: `Email type not allowed: ${type}` }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  } else {
+    if (!USER_ALLOWED_TYPES.has(type)) {
+      return new Response(JSON.stringify({ error: `Email type not allowed: ${type}` }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (!u.email || String(to).trim().toLowerCase() !== u.email.toLowerCase()) {
+      return new Response(JSON.stringify({ error: "Email recipient must match the signed-in user." }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    if (userId && userId !== u.id) {
+      return new Response(JSON.stringify({ error: "userId must match the signed-in user." }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
   }
 
   const { subject, html } = templateFn(data);
@@ -212,6 +229,31 @@ Deno.test("payment_confirmation is blocked for browser callers", async () => {
   );
   assertEquals(res.status, 403);
   assertEquals(deps.calls.sendViaResend.length, 0);
+});
+
+Deno.test("service payment_confirmation says predictions are submitted and includes app link", async () => {
+  const deps = validDeps();
+  deps.getUser = async (_token) => ({ user: null, error: null });
+
+  const res = await handleSendEmail(
+    makeRequest(
+      {
+        to: "user@example.com",
+        type: "payment_confirmation",
+        data: { name: "Bob", appUrl: "https://example.com" },
+        userId: "user-123",
+      },
+      "Bearer service-role-token",
+    ),
+    deps,
+  );
+
+  assertEquals(res.status, 200);
+  const payload = deps.calls.sendViaResend[0] as { subject: string; html: string };
+  assertEquals(payload.subject, "Entry Confirmed - Predictions Submitted");
+  assertEquals(payload.html.includes("Entry confirmed"), true);
+  assertEquals(payload.html.includes("edit until the entry deadline"), true);
+  assertEquals(payload.html.includes("https://example.com"), true);
 });
 
 Deno.test("Resend failure → logs status as 'failed' and returns 502", async () => {
