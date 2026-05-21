@@ -7,7 +7,7 @@
  * and the no-op paths when Supabase is not configured.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { friendlyAuthMessage, publicLeaderboardProfile } from "../supabase.js";
+import { friendlyAuthMessage, isValidEmailAddress, publicLeaderboardProfile } from "../supabase.js";
 
 // ─── Mock @supabase/supabase-js ───────────────────────────────────────────────
 
@@ -120,6 +120,19 @@ describe("friendlyAuthMessage", () => {
 
   it("handles empty message", () => {
     expect(friendlyAuthMessage("", undefined)).toMatch(/Something went wrong/i);
+  });
+});
+
+describe("email validation", () => {
+  it("accepts practical email usernames", () => {
+    expect(isValidEmailAddress("player@example.com")).toBe(true);
+    expect(isValidEmailAddress(" First.Last+pool@sub.example.co.uk ")).toBe(true);
+  });
+
+  it("rejects non-email usernames", () => {
+    expect(isValidEmailAddress("paidplayer")).toBe(false);
+    expect(isValidEmailAddress("player@example")).toBe(false);
+    expect(isValidEmailAddress("player@")).toBe(false);
   });
 });
 

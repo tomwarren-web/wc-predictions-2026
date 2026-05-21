@@ -15,5 +15,11 @@ verify_jwt = false
 [functions.leaderboard-entries]
 verify_jwt = false
 
+[functions.analytics-track]
+verify_jwt = false
+
+[functions.analytics-report]
+verify_jwt = false
+
 [functions.stripe-webhook]
 verify_jwt = false

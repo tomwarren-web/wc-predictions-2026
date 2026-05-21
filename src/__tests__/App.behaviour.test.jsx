@@ -27,15 +27,19 @@ vi.mock("../lib/supabase.js", () => ({
   upsertProfile: vi.fn().mockResolvedValue({ ok: true }),
   fetchProfile: vi.fn().mockResolvedValue(null),
   fetchTournamentSettings: vi.fn().mockResolvedValue(null),
+  fetchAnalyticsReport: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
   createCheckoutSession: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
   checkPaymentStatus: vi.fn().mockResolvedValue({ paid: false }),
   confirmPaymentStatus: vi.fn().mockResolvedValue({ paid: false }),
+  isAnalyticsAdminProfile: vi.fn().mockReturnValue(false),
+  isValidEmailAddress: vi.fn((email) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(email || "").trim().toLowerCase())),
   sendEmail: vi.fn().mockResolvedValue({ ok: false }),
   signUpWithPassword: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
   signInWithPassword: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
   requestPasswordReset: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
   updatePassword: vi.fn().mockResolvedValue({ ok: false, error: "not configured" }),
   ensureProfileFromAuthSession: vi.fn().mockResolvedValue({ ok: false, profile: null }),
+  trackAnalyticsEvent: vi.fn().mockResolvedValue({ ok: true }),
 }));
 
 vi.mock("../lib/api-football.js", () => ({

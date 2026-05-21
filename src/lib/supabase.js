@@ -2,6 +2,7 @@ import { createClient, FunctionsFetchError, FunctionsHttpError } from "@supabase
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const ANALYTICS_SESSION_KEY = "wc-predictions-analytics-session";
 
 /** Service role JWTs must never run in the browser — Supabase rejects them with 401 / "Forbidden use of secret API key". */
 function isLikelyServiceRoleKey(key) {
@@ -112,9 +113,45 @@ function normalizeEmail(email) {
   return cleanText(email).toLowerCase();
 }
 
+export function isValidEmailAddress(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(normalizeEmail(email));
+}
+
 function defaultUsernameForUser(userId) {
   const suffix = cleanText(userId).replace(/-/g, "").slice(0, 8) || `${Date.now()}`;
   return `user_${suffix}`;
+}
+
+function configuredAnalyticsAdminEmails() {
+  return `${import.meta.env.VITE_ANALYTICS_ADMIN_EMAILS || import.meta.env.VITE_ADMIN_EMAILS || ""}`
+    .split(",")
+    .map((email) => normalizeEmail(email))
+    .filter(Boolean);
+}
+
+export function isAnalyticsAdminProfile(profile) {
+  const email = normalizeEmail(profile?.email);
+  return Boolean(email && configuredAnalyticsAdminEmails().includes(email));
+}
+
+function randomAnalyticsSessionId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `session_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function getAnalyticsSessionId() {
+  if (typeof window === "undefined") return randomAnalyticsSessionId();
+  try {
+    const existing = window.localStorage.getItem(ANALYTICS_SESSION_KEY);
+    if (existing && existing.length >= 12) return existing;
+    const next = randomAnalyticsSessionId();
+    window.localStorage.setItem(ANALYTICS_SESSION_KEY, next);
+    return next;
+  } catch {
+    return randomAnalyticsSessionId();
+  }
 }
 
 function usernameTakenError(error) {
@@ -213,6 +250,7 @@ export function friendlyProfileMessage(rawMessage, code) {
   if (c === "not_configured")
     return "Online accounts are not set up in this app yet. If this keeps happening, contact the organiser.";
   if (c === "no_session") return "Your sign-in expired. Sign in again to continue.";
+  if (c === "email_address_invalid") return "Enter a valid email address.";
   if (usernameTakenError({ code: c, message: msg })) return "That display username is already taken. Choose another one.";
   if (c === "23503" || lower.includes("foreign key")) return "Your account profile is still being created. Try again in a moment.";
   if (c === "42501" || lower.includes("row-level security") || lower.includes("permission denied")) {
@@ -228,6 +266,9 @@ export async function signUpWithPassword({ email, password, name, username }) {
   if (!supabase) return { ok: false, error: friendlyAuthMessage(null, "not_configured"), errorCode: "not_configured" };
   const emailRedirectTo = authEmailRedirectUrl();
   const cleanEmail = normalizeEmail(email);
+  if (!isValidEmailAddress(cleanEmail)) {
+    return { ok: false, error: friendlyAuthMessage("Invalid email", "email_address_invalid"), errorCode: "email_address_invalid" };
+  }
   const options = { data: { name: cleanText(name), username: cleanText(username) } };
   if (emailRedirectTo) options.emailRedirectTo = emailRedirectTo;
   const { data, error } = await supabase.auth.signUp({
@@ -267,13 +308,17 @@ export async function signUpWithPassword({ email, password, name, username }) {
 
 export async function signInWithPassword({ email, password }) {
   if (!supabase) return { ok: false, error: friendlyAuthMessage(null, "not_configured"), errorCode: "not_configured" };
+  const cleanEmail = normalizeEmail(email);
+  if (!isValidEmailAddress(cleanEmail)) {
+    return { ok: false, error: friendlyAuthMessage("Invalid email", "email_address_invalid"), errorCode: "email_address_invalid" };
+  }
   let timeoutId;
   const timeout = new Promise((_, reject) => {
     timeoutId = setTimeout(() => reject(Object.assign(new Error("Request timed out"), { code: "timeout" })), 20000);
   });
   try {
     const { data, error } = await Promise.race([
-      supabase.auth.signInWithPassword({ email: normalizeEmail(email), password }),
+      supabase.auth.signInWithPassword({ email: cleanEmail, password }),
       timeout,
     ]);
     if (error)
@@ -298,9 +343,13 @@ export async function signInWithPassword({ email, password }) {
 
 export async function requestPasswordReset(email) {
   if (!supabase) return { ok: false, error: friendlyAuthMessage(null, "not_configured"), errorCode: "not_configured" };
+  const cleanEmail = normalizeEmail(email);
+  if (!isValidEmailAddress(cleanEmail)) {
+    return { ok: false, error: friendlyAuthMessage("Invalid email", "email_address_invalid"), errorCode: "email_address_invalid" };
+  }
   const redirectTo = passwordResetRedirectUrl();
   const opts = redirectTo ? { redirectTo } : {};
-  const { error } = await supabase.auth.resetPasswordForEmail(normalizeEmail(email), opts);
+  const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, opts);
   if (error)
     return {
       ok: false,
@@ -335,9 +384,13 @@ export async function upsertProfile({ name, email, username }) {
 
   const meta = session.user.user_metadata && typeof session.user.user_metadata === "object" ? session.user.user_metadata : {};
   const emailFromSession = normalizeEmail(session.user.email);
+  const requestedEmail = normalizeEmail(email) || emailFromSession;
+  if (!isValidEmailAddress(requestedEmail)) {
+    return { ok: false, error: friendlyProfileMessage("Invalid email", "email_address_invalid"), errorCode: "email_address_invalid" };
+  }
   const profilePatch = {
     name: cleanText(name) || cleanText(meta.name) || (emailFromSession ? emailFromSession.split("@")[0] : "Player"),
-    email: normalizeEmail(email) || emailFromSession,
+    email: requestedEmail,
     username: cleanText(username) || cleanText(meta.username) || defaultUsernameForUser(session.user.id),
   };
 
@@ -543,6 +596,47 @@ export async function fetchTournamentSettings() {
     entryDeadlineIso: byKey.entry_deadline_iso || null,
     firstKickoffIso: byKey.first_match_kickoff_iso || null,
   };
+}
+
+export async function trackAnalyticsEvent(eventType, payload = {}) {
+  if (!supabase) return { ok: false, skipped: true };
+  const sessionId = getAnalyticsSessionId();
+  const body = {
+    sessionId,
+    eventType,
+    screen: cleanText(payload.screen).slice(0, 64),
+    path: typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : "",
+    referrer: typeof document !== "undefined" ? document.referrer || "" : "",
+    metadata: payload.metadata && typeof payload.metadata === "object" ? payload.metadata : {},
+  };
+
+  const { data, error } = await supabase.functions.invoke("analytics-track", {
+    body,
+    timeout: 10_000,
+  });
+
+  if (error) {
+    if (import.meta.env.DEV) console.warn("[analytics-track]", error.message);
+    return { ok: false, error: error.message };
+  }
+
+  return { ok: Boolean(data?.ok), data };
+}
+
+export async function fetchAnalyticsReport(days = 14) {
+  if (!supabase) return { ok: false, error: "not_configured" };
+  const { data, error } = await supabase.functions.invoke("analytics-report", {
+    body: { days },
+    timeout: 20_000,
+  });
+
+  if (error) {
+    const { message } = await readFunctionError(error, "Analytics report failed");
+    return { ok: false, error: message };
+  }
+
+  if (data?.error) return { ok: false, error: data.error };
+  return { ok: true, report: data };
 }
 
 const OUTRIGHT_KEYS = [

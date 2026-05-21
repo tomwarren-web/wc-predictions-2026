@@ -9,15 +9,19 @@ import {
   upsertProfile,
   fetchProfile,
   fetchTournamentSettings,
+  fetchAnalyticsReport,
   createCheckoutSession,
   checkPaymentStatus,
   confirmPaymentStatus,
+  isAnalyticsAdminProfile,
+  isValidEmailAddress,
   sendEmail,
   signUpWithPassword,
   signInWithPassword,
   requestPasswordReset,
   updatePassword,
   ensureProfileFromAuthSession,
+  trackAnalyticsEvent,
 } from "./lib/supabase";
 import { isApiFootballConfigured, fetchAllResults, hasLiveMatches, getMatchResultForTeams } from "./lib/api-football";
 import { getSubmissionDeadlineMs, getFirstKickoffMs, formatCountdown, formatDeadlineLocal } from "./lib/tournament-deadline";
@@ -488,6 +492,21 @@ const css = `
   .card:hover { border-color: #2a2a2a; }
   .matches-grid { display: grid; gap: 12px; }
 
+  .analytics-grid { display: grid; grid-template-columns: repeat(5, minmax(120px, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .analytics-metric { background: #0d0d0d; border: 1px solid #1e1e1e; padding: 14px; }
+  .analytics-metric-label { font-size: 0.65rem; color: #666; font-family: 'Barlow', sans-serif; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+  .analytics-metric-value { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 2rem; line-height: 1; color: ${COLORS.gold}; }
+  .analytics-panels { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .analytics-panel { background: #0d0d0d; border: 1px solid #1e1e1e; padding: 14px; min-width: 0; }
+  .analytics-panel-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1rem; letter-spacing: 1px; text-transform: uppercase; color: #fff; margin-bottom: 10px; }
+  .analytics-row { display: grid; grid-template-columns: minmax(86px, 1fr) minmax(80px, 2fr) 44px; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #151515; font-size: 0.74rem; color: #aaa; }
+  .analytics-row:last-child { border-bottom: none; }
+  .analytics-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'Barlow', sans-serif; font-weight: 700; }
+  .analytics-bar { height: 6px; background: #151515; overflow: hidden; }
+  .analytics-fill { height: 100%; background: ${COLORS.gold}; min-width: 2px; }
+  .analytics-count { text-align: right; color: ${COLORS.gold}; font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 0.9rem; }
+  .analytics-empty { color: #555; font-size: 0.8rem; padding: 8px 0; font-family: 'Noto Sans', sans-serif; }
+
   .submit-card { background: #0d0d0d; border: 1px solid #1e1e1e; padding: 1.5rem; max-width: 520px; margin: 0 auto; }
   .submit-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.6rem; letter-spacing: 1px; text-transform: uppercase; color: #fff; margin-bottom: 8px; }
   .submit-checklist { margin: 1rem 0; }
@@ -700,6 +719,8 @@ const css = `
     .lp-cats { grid-template-columns: 1fr; gap: 10px; }
     .rules-grid { grid-template-columns: 1fr; }
     .outright-grid { grid-template-columns: 1fr 1fr; }
+    .analytics-grid { grid-template-columns: repeat(2, 1fr); }
+    .analytics-panels { grid-template-columns: 1fr; }
   }
 
   /* --- Responsive: mobile --- */
@@ -777,6 +798,9 @@ const css = `
     .rule-card { padding: 12px; }
 
     .stat-card { padding: 12px; }
+    .analytics-grid { grid-template-columns: 1fr; }
+    .analytics-row { grid-template-columns: minmax(78px, 1fr) minmax(60px, 1.3fr) 36px; }
+    .analytics-metric-value { font-size: 1.7rem; }
 
     .lb-row { gap: 8px; padding: 12px 0; }
     .lb-rank { font-size: 1rem; width: 28px; }
@@ -944,7 +968,7 @@ function SignupScreen({
     clearNotice();
     setForm((f) => ({ ...f, [k]: v }));
   };
-  const validEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const validEmail = (email) => isValidEmailAddress(email);
 
   useEffect(() => {
     if (submissionClosed && authTab !== "signin") {
@@ -1039,6 +1063,14 @@ function SignupScreen({
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleLocalOnlyStart = () => {
+    clearNotice();
+    if (!form.name?.trim()) return setError("Enter your full name to continue.");
+    if (!form.email?.trim()) return setError("Enter your email address.");
+    if (!validEmail(form.email.trim())) return setError("Enter a valid email address.");
+    onLocalComplete({ name: form.name.trim(), email: form.email.trim(), username: form.username.trim() });
   };
 
   const exampleEntryCount = 20;
@@ -1411,9 +1443,7 @@ function SignupScreen({
               className="btn-primary"
               style={{ marginTop: 8 }}
               disabled={busy}
-              onClick={() => {
-                if (form.name && form.email) onLocalComplete({ name: form.name, email: form.email, username: form.username });
-              }}
+              onClick={handleLocalOnlyStart}
             >
               Start Predicting →
             </button>
@@ -1779,7 +1809,7 @@ function OutrightsScreen({ preds, setPreds, readOnly }) {
       label: "Total goals in the tournament",
       kind: "number",
       min: 50,
-      max: 250,
+      max: 500,
       hint: "Earn 10 points if you are within 3 goals of the final tournament total. Closest total-goals prediction breaks leaderboard ties.",
     },
   ];
@@ -2100,6 +2130,127 @@ function LeaderboardScreen({ results, allUsers, currentUserId, submissionClosed,
   );
 }
 
+function AnalyticsRows({ rows = [] }) {
+  const max = Math.max(1, ...rows.map((row) => row.count || 0));
+  if (!rows.length) return <div className="analytics-empty">No data yet</div>;
+  return rows.map((row, index) => (
+    <div className="analytics-row" key={`${row.label}-${index}`}>
+      <div className="analytics-label" title={row.label}>{row.label}</div>
+      <div className="analytics-bar" aria-hidden>
+        <div className="analytics-fill" style={{ width: `${Math.max(4, ((row.count || 0) / max) * 100)}%` }} />
+      </div>
+      <div className="analytics-count">{row.count}</div>
+    </div>
+  ));
+}
+
+function AnalyticsScreen() {
+  const [days, setDays] = useState(14);
+  const [report, setReport] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const loadReport = async (range = days) => {
+    setLoading(true);
+    setError("");
+    const result = await fetchAnalyticsReport(range);
+    if (result.ok) {
+      setReport(result.report);
+    } else {
+      setError(result.error || "Analytics unavailable");
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    void loadReport(days);
+    const id = setInterval(() => loadReport(days), 60_000);
+    return () => clearInterval(id);
+  }, [days]);
+
+  const totals = report?.totals || {};
+  const metrics = [
+    { label: "Page Views", value: totals.pageViews || 0 },
+    { label: "Visitors", value: totals.uniqueVisitors || 0 },
+    { label: "Live Now", value: totals.liveUsers || 0 },
+    { label: "Signed In", value: totals.signedInUsers || 0 },
+    { label: "Events", value: totals.events || 0 },
+  ];
+
+  return (
+    <div className="section">
+      <div className="section-title">Analytics</div>
+      <div className="section-title-line" />
+      <div className="section-sub">
+        First-party stats for interest, live users, and journeys through the prediction flow.
+      </div>
+
+      <div className="group-tabs" aria-label="Analytics range">
+        {[7, 14, 30, 90].map((range) => (
+          <button
+            key={range}
+            type="button"
+            className={`group-tab${days === range ? " active" : ""}`}
+            onClick={() => setDays(range)}
+          >
+            {range}d
+          </button>
+        ))}
+        <button type="button" className="group-tab" onClick={() => loadReport(days)} disabled={loading}>
+          Refresh
+        </button>
+      </div>
+
+      {error && (
+        <div className="card" style={{ padding: 14, color: "#e57373", fontSize: "0.82rem" }}>
+          {error}
+        </div>
+      )}
+
+      <div className="analytics-grid" aria-busy={loading}>
+        {metrics.map((metric) => (
+          <div className="analytics-metric" key={metric.label}>
+            <div className="analytics-metric-label">{metric.label}</div>
+            <div className="analytics-metric-value">{metric.value.toLocaleString()}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="analytics-panels">
+        <div className="analytics-panel">
+          <div className="analytics-panel-title">Top Screens</div>
+          <AnalyticsRows rows={report?.screens || []} />
+        </div>
+        <div className="analytics-panel">
+          <div className="analytics-panel-title">User Flows</div>
+          <AnalyticsRows rows={report?.flows || []} />
+        </div>
+        <div className="analytics-panel">
+          <div className="analytics-panel-title">Daily Views</div>
+          <AnalyticsRows rows={report?.dailyViews || []} />
+        </div>
+        <div className="analytics-panel">
+          <div className="analytics-panel-title">Live Screens</div>
+          <AnalyticsRows rows={report?.liveScreens || []} />
+        </div>
+        <div className="analytics-panel">
+          <div className="analytics-panel-title">Events</div>
+          <AnalyticsRows rows={report?.eventsByType || []} />
+        </div>
+        <div className="analytics-panel">
+          <div className="analytics-panel-title">Recent Activity</div>
+          <AnalyticsRows
+            rows={(report?.recentEvents || []).map((event) => ({
+              label: `${event.event_type} / ${event.screen || event.path || "unknown"}`,
+              count: 1,
+            }))}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SubmitScreen({ preds, profile, onPay, paymentLoading, submissionClosed }) {
   const totalMatches = GROUP_MATCHES.length;
   const matchesDone = GROUP_MATCHES.filter(m => {
@@ -2276,6 +2427,7 @@ export default function App() {
   });
   const leaderboardAvailable = submissionClosed || Boolean(profile?.paid);
   const paidHomeScreen = submissionClosed ? "leaderboard" : "matches";
+  const analyticsAdmin = isAnalyticsAdminProfile(profile);
   const predictionsReadOnly = Boolean(profile?.locked || submissionClosed || paymentReturnPending);
   const currentSectionHasUnsavedChanges = useMemo(
     () => !predictionsReadOnly &&
@@ -2298,6 +2450,29 @@ export default function App() {
     return () => window.removeEventListener("beforeunload", handleBeforeUnload);
   }, [hasUnsavedChanges]);
 
+  useEffect(() => {
+    void trackAnalyticsEvent("page_view", {
+      screen,
+      metadata: {
+        paid: Boolean(profile?.paid),
+        signedIn: Boolean(currentUserId),
+        submissionClosed,
+      },
+    });
+  }, [screen, profile?.paid, currentUserId, submissionClosed]);
+
+  useEffect(() => {
+    const sendHeartbeat = () => {
+      void trackAnalyticsEvent("heartbeat", {
+        screen,
+        metadata: { paid: Boolean(profile?.paid), signedIn: Boolean(currentUserId) },
+      });
+    };
+    sendHeartbeat();
+    const id = setInterval(sendHeartbeat, 60_000);
+    return () => clearInterval(id);
+  }, [screen, profile?.paid, currentUserId]);
+
   // Redirect off leaderboard until the user has paid or entries have closed.
   useEffect(() => {
     if (screen === "leaderboard" && !leaderboardAvailable) {
@@ -2311,6 +2486,12 @@ export default function App() {
       setScreen(paidHomeScreen);
     }
   }, [profile?.paid, screen, paidHomeScreen]);
+
+  useEffect(() => {
+    if (screen === "analytics" && !analyticsAdmin) {
+      setScreen("matches");
+    }
+  }, [screen, analyticsAdmin]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2403,6 +2584,7 @@ export default function App() {
     const paymentStatus = params.get("payment");
     const checkoutSessionId = params.get("session_id");
     if (paymentStatus === "success") {
+      void trackAnalyticsEvent("payment_success_return", { screen, metadata: { hasSessionId: Boolean(checkoutSessionId) } });
       showToast("Payment received — confirming your entry...");
       setPaymentReturnPending(true);
       setScreen(paidHomeScreen);
@@ -2448,6 +2630,7 @@ export default function App() {
       })();
       window.history.replaceState({}, "", window.location.pathname);
     } else if (paymentStatus === "cancelled") {
+      void trackAnalyticsEvent("payment_cancelled_return", { screen });
       setPaymentReturnPending(false);
       showToast("Payment cancelled — you can try again");
       setScreen("submit");
@@ -2632,6 +2815,7 @@ export default function App() {
     if (r.needsEmailConfirmation) {
       const info = r.message || "Check your email to confirm your account, then sign in.";
       showToast("Check your email to confirm your account.");
+      void trackAnalyticsEvent("signup_email_confirmation_required", { screen: "signup" });
       return { ok: true, info, switchToSignIn: true };
     }
     let session = r.session || (await ensureSupabaseSession());
@@ -2643,6 +2827,7 @@ export default function App() {
     if (!enterPredictionsAfterAuth()) return { ok: false, error: "Submissions are closed — new entries are not accepted." };
     setNeedsProfileCompletion(false);
     void syncEntryAfterAuth(form);
+    void trackAnalyticsEvent("signup_completed", { screen: "signup" });
     return { ok: true };
   };
 
@@ -2658,6 +2843,7 @@ export default function App() {
     clearAuthUrlParams();
     // Navigate immediately; profile and prediction hydration can finish in the background.
     enterPredictionsAfterAuth({ allowAfterDeadline: true });
+    void trackAnalyticsEvent("signin_completed", { screen: "signup" });
     void (async () => {
       try {
         const row = await fetchPredictionsRow();
@@ -2728,6 +2914,7 @@ export default function App() {
     setScreen("matches");
     persistLocal(preds, "matches");
     sendEmail(session.user.email, "welcome", { name }).catch(() => {});
+    void trackAnalyticsEvent("profile_completed", { screen: "signup" });
   };
 
   const handleForgotPassword = async (email) => {
@@ -2738,6 +2925,7 @@ export default function App() {
     }
     const info = "Check your email for the password reset link.";
     showToast(info);
+    void trackAnalyticsEvent("password_reset_requested", { screen: "signup" });
     return { ok: true, info };
   };
 
@@ -2764,6 +2952,7 @@ export default function App() {
       setScreen(paidHomeScreen);
       return;
     }
+    void trackAnalyticsEvent("payment_started", { screen });
     setPaymentLoading(true);
     try {
       const latestBeforePay = await fetchProfile();
@@ -2785,6 +2974,7 @@ export default function App() {
         return;
       }
       if (result.paid) {
+        void trackAnalyticsEvent("payment_already_paid", { screen });
         showToast("Already paid — you can keep editing until the deadline.");
         const prof = await fetchProfile();
         if (prof) setProfile(prof);
@@ -2808,6 +2998,7 @@ export default function App() {
     { id: "outrights", label: "Outrights" },
     ...(profile?.paid ? [] : [{ id: "submit", label: "Submit" }]),
     ...(leaderboardAvailable ? [{ id: "leaderboard", label: "Leaderboard" }] : []),
+    ...(analyticsAdmin ? [{ id: "analytics", label: "Analytics" }] : []),
     { id: "rules", label: "Rules" },
   ] : [];
 
@@ -2920,6 +3111,10 @@ export default function App() {
     const r = await upsertPredictions(preds, {});
     if (r.ok) {
       advanceAfterLocalSave();
+      void trackAnalyticsEvent("predictions_saved", {
+        screen: currentScreen,
+        metadata: { advanced: Boolean(nextTarget) },
+      });
       if (!silentSuccess) showToast("Predictions saved!");
       return { ok: true };
     }
@@ -3049,9 +3244,10 @@ export default function App() {
             canViewLeaderboard={leaderboardAvailable}
           />
         )}
+        {screen === "analytics" && analyticsAdmin && <AnalyticsScreen />}
         {screen === "rules" && <RulesScreen />}
 
-        {screen !== "signup" && screen !== "leaderboard" && screen !== "rules" && screen !== "submit" && !predictionsReadOnly && (
+        {screen !== "signup" && screen !== "leaderboard" && screen !== "analytics" && screen !== "rules" && screen !== "submit" && !predictionsReadOnly && (
           <div style={{ padding: "0 1.5rem", marginTop: "8px" }}>
             {currentSectionHasUnsavedChanges && (
               <div className="unsaved-banner" role="status">
