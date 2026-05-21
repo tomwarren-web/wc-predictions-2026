@@ -17,7 +17,6 @@ interface WebhookDeps {
   updatePayment: (sessionId: string, data: Record<string, unknown>) => Promise<void>;
   updateProfile: (userId: string, data: Record<string, unknown>) => Promise<void>;
   getProfile: (userId: string) => Promise<{ email: string; name: string; paid?: boolean; locked?: boolean } | null>;
-  shouldLockForDeadline: () => Promise<boolean>;
   hasSentPaymentEmail: (userId: string) => Promise<boolean>;
   sendEmail: (to: string, type: string, data: Record<string, unknown>) => Promise<void>;
   getPaymentByIntent: (intentId: string) => Promise<{ user_id: string } | null>;
@@ -65,7 +64,7 @@ async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Response>
       stripe_payment_intent_id: obj.payment_intent,
       completed_at: new Date().toISOString(),
     });
-    await deps.updateProfile(userId, { paid: true, locked: await deps.shouldLockForDeadline() });
+    await deps.updateProfile(userId, { paid: true });
 
     if (!(await deps.hasSentPaymentEmail(userId))) {
       if (profileBeforeLock?.email) {
@@ -146,7 +145,6 @@ const validDeps = (): WebhookDeps & { calls: Record<string, unknown[]> } => {
     updatePayment: async (id, data) => { calls.updatePayment.push({ id, data }); },
     updateProfile: async (uid, data) => { calls.updateProfile.push({ uid, data }); },
     getProfile: async (_uid) => ({ email: "user@example.com", name: "Test User" }),
-    shouldLockForDeadline: async () => false,
     hasSentPaymentEmail: async (_uid) => false,
     sendEmail: async (to, type, data) => { calls.sendEmail.push({ to, type, data }); },
     getPaymentByIntent: async (_id) => ({ user_id: "user-abc-123" }),
@@ -191,19 +189,18 @@ Deno.test("checkout.session.completed → sets paid:true without locking before 
   assertEquals(profileUpdate !== undefined, true);
   const call = profileUpdate as { uid: string; data: Record<string, unknown> };
   assertEquals(call.data.paid, true);
-  assertEquals(call.data.locked, false);
+  assertEquals("locked" in call.data, false);
   assertEquals(call.uid, "user-abc-123");
 });
 
-Deno.test("checkout.session.completed → locks profile when deadline is closed", async () => {
+Deno.test("checkout.session.completed → does not change locked when deadline is closed", async () => {
   const deps = validDeps();
-  deps.shouldLockForDeadline = async () => true;
 
   await handleWebhook(makeWebhookRequest(checkoutCompletedEvent), deps);
 
   const call = deps.calls.updateProfile[0] as { data: Record<string, unknown> };
   assertEquals(call.data.paid, true);
-  assertEquals(call.data.locked, true);
+  assertEquals("locked" in call.data, false);
 });
 
 Deno.test("checkout.session.completed → marks payment as completed", async () => {

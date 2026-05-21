@@ -61,15 +61,6 @@ function isExpectedPaidSession(session: Stripe.Checkout.Session) {
   );
 }
 
-async function shouldLockForDeadline(supabase: any) {
-  const { data, error } = await supabase.rpc("entries_are_closed");
-  if (error) {
-    console.warn("Could not check entries_are_closed while confirming payment:", error.message);
-    return false;
-  }
-  return Boolean(data);
-}
-
 async function sendPaymentConfirmationIfNeeded(supabase: any, userId: string) {
   const { data: existingEmail, error: emailLogError } = await supabase
     .from("email_log")
@@ -180,10 +171,9 @@ async function completePaymentFromSession(
     }
   }
 
-  const locked = await shouldLockForDeadline(supabase);
   const { error: updateProfileError } = await supabase
     .from("profiles")
-    .update({ paid: true, locked })
+    .update({ paid: true })
     .eq("id", userId);
 
   if (updateProfileError) {
@@ -192,7 +182,7 @@ async function completePaymentFromSession(
   }
 
   const email = await sendPaymentConfirmationIfNeeded(supabase, userId);
-  return { paid: true, locked, repaired: existingPayment?.status !== "completed", emailSent: email.sent };
+  return { paid: true, repaired: existingPayment?.status !== "completed", emailSent: email.sent };
 }
 
 async function reconcilePayment(
@@ -221,11 +211,10 @@ async function reconcilePayment(
     .maybeSingle();
 
   if (completedPayment) {
-    const locked = await shouldLockForDeadline(supabase);
-    if (!profile?.paid || profile?.locked !== locked) {
+    if (!profile?.paid) {
       const { error } = await supabase
         .from("profiles")
-        .update({ paid: true, locked })
+        .update({ paid: true })
         .eq("id", userId);
       if (error) {
         console.error("Profile paid repair failed:", error.message);
@@ -235,8 +224,8 @@ async function reconcilePayment(
     const email = await sendPaymentConfirmationIfNeeded(supabase, userId);
     return {
       paid: true,
-      locked,
-      repaired: !profile?.paid || profile?.locked !== locked,
+      locked: Boolean(profile?.locked),
+      repaired: !profile?.paid,
       emailSent: email.sent,
     };
   }

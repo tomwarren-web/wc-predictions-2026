@@ -135,19 +135,10 @@ function getPaymentIntentId(session: any) {
   return null;
 }
 
-async function shouldLockForDeadline(supabase: any) {
-  const { data, error } = await supabase.rpc("entries_are_closed");
-  if (error) {
-    console.warn("Could not check entries_are_closed while confirming payment:", error.message);
-    return false;
-  }
-  return Boolean(data);
-}
-
 async function markProfilePaid(supabase: any, userId: string) {
   const { error } = await supabase
     .from("profiles")
-    .update({ paid: true, locked: await shouldLockForDeadline(supabase) })
+    .update({ paid: true })
     .eq("id", userId);
 
   if (error) console.error("Failed to mark profile paid:", error.message);
