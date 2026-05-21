@@ -194,6 +194,10 @@ describe("Pre-deadline — entries open", () => {
     expect(totalGoalsInput).toHaveValue(14);
     fireEvent.change(totalGoalsInput, { target: { value: "140" } });
     expect(totalGoalsInput).toHaveValue(140);
+    fireEvent.change(totalGoalsInput, { target: { value: "1234" } });
+    expect(totalGoalsInput).toHaveValue(1234);
+    fireEvent.change(totalGoalsInput, { target: { value: "12345" } });
+    expect(totalGoalsInput).toHaveValue(1234);
     expect(screen.queryByRole("button", { name: /decrease/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /increase/i })).not.toBeInTheDocument();
   });

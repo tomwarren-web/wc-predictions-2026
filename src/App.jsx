@@ -896,7 +896,7 @@ function ScoreInput({ value, onChange, label, disabled }) {
   );
 }
 
-function NumberInput({ value, onChange, min = 0, max = 999, label, disabled }) {
+function NumberInput({ value, onChange, min = 0, max, maxLength, label, disabled }) {
   return (
     <div className="number-input-row">
       <input
@@ -906,15 +906,17 @@ function NumberInput({ value, onChange, min = 0, max = 999, label, disabled }) {
         onChange={e => {
           if (disabled) return;
           const raw = e.target.value;
+          const normalized = maxLength ? raw.slice(0, maxLength) : raw;
           if (raw === "") {
             onChange("");
-          } else if (/^\d+$/.test(raw)) {
-            const parsed = Number(raw);
+          } else if (/^\d+$/.test(normalized)) {
+            const parsed = Number(normalized);
             onChange(Number.isFinite(max) ? Math.min(parsed, max) : parsed);
           }
         }}
         min={min}
         max={max}
+        maxLength={maxLength}
         placeholder="140"
         aria-label={label || "Value"}
         inputMode="numeric"
@@ -1809,7 +1811,7 @@ function OutrightsScreen({ preds, setPreds, readOnly }) {
       label: "Total goals in the tournament",
       kind: "number",
       min: 50,
-      max: 500,
+      maxLength: 4,
       hint: "Earn 10 points if you are within 3 goals of the final tournament total. Closest total-goals prediction breaks leaderboard ties.",
     },
   ];
@@ -1822,14 +1824,14 @@ function OutrightsScreen({ preds, setPreds, readOnly }) {
       <div className="section-title-line" />
       <div className="section-sub">Who's lifting the trophy? Who's golden?{readOnly ? " (read-only)" : ""}</div>
       <div className="outright-grid">
-        {outrights.map(({ key, icon, label, kind, min, max, hint }) => {
+        {outrights.map(({ key, icon, label, kind, min, max, maxLength, hint }) => {
           if (kind === "number") {
             return (
               <div key={key} className="outright-card" style={{ gridColumn: "1 / -1" }}>
                 <span className="outright-icon">{icon}</span>
                 <label>{label}</label>
                 {hint && <div className="hint" style={{ fontSize: "0.72rem", color: "#444", marginTop: 6, marginBottom: 10, fontFamily: "'Noto Sans', sans-serif", lineHeight: 1.5 }}>{hint}</div>}
-                <NumberInput value={preds[key] ?? ""} onChange={v => set(key, v)} min={min} max={max} label={label} disabled={readOnly} />
+                <NumberInput value={preds[key] ?? ""} onChange={v => set(key, v)} min={min} max={max} maxLength={maxLength} label={label} disabled={readOnly} />
               </div>
             );
           }
