@@ -1,9 +1,11 @@
+import { isSupabaseConfigured, supabase } from "./supabase";
+
 const API_KEY = import.meta.env.VITE_API_FOOTBALL_KEY;
 const BASE_URL = "https://v3.football.api-sports.io";
 const LEAGUE_ID = 1; // FIFA World Cup
 const SEASON = 2026;
 
-export const isApiFootballConfigured = Boolean(API_KEY);
+export const isApiFootballConfigured = isSupabaseConfigured || Boolean(API_KEY);
 
 // API-Football team names → our internal TEAMS constant names
 const TEAM_ALIAS = {
@@ -121,6 +123,23 @@ async function apiFetch(endpoint, params = {}) {
   return json.response;
 }
 
+async function fetchSharedResults() {
+  if (!supabase) return null;
+  const { data, error } = await supabase.functions.invoke("football-results", {
+    body: {},
+    timeout: 30_000,
+  });
+
+  if (error) {
+    if (import.meta.env.DEV) console.warn("[football-results]", error.message);
+    return null;
+  }
+  if (!data || typeof data !== "object" || !data.matches) return null;
+  _hasLive = Boolean(data.hasLive);
+  setCache("results", data);
+  return data;
+}
+
 // Status codes that mean the match is currently in play
 const LIVE_STATUSES = new Set([
   "1H",
@@ -205,6 +224,11 @@ export async function fetchAllResults() {
   const cacheTTL = _hasLive ? 60_000 : 300_000;
   const cached = getCached("results", cacheTTL);
   if (cached) return cached;
+
+  const shared = await fetchSharedResults();
+  if (shared) return shared;
+
+  if (!API_KEY || !import.meta.env.DEV) return null;
 
   const [fixtures, standingsData, scorersData] = await Promise.all([
     apiFetch("/fixtures", { league: LEAGUE_ID, season: SEASON }),

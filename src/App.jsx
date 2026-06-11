@@ -2660,6 +2660,7 @@ export default function App() {
     if (screen === "signup") return;
     if (!isApiFootballConfigured) return;
     let cancelled = false;
+    let timeoutId;
     const poll = async () => {
       try {
         const data = await fetchAllResults();
@@ -2667,10 +2668,15 @@ export default function App() {
       } catch (e) {
         console.warn("Results fetch:", e);
       }
+      if (!cancelled) {
+        timeoutId = setTimeout(poll, hasLiveMatches() ? 5 * 60_000 : 15 * 60_000);
+      }
     };
     poll();
-    const id = setInterval(poll, hasLiveMatches() ? 60_000 : 300_000);
-    return () => { cancelled = true; clearInterval(id); };
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
   }, [screen]);
 
   useEffect(() => {

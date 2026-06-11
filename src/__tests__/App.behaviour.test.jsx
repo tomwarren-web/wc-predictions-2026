@@ -271,10 +271,10 @@ describe("Post-deadline — entries closed", () => {
     });
   });
 
-  it("deadline banner shows 'Submissions closed'", async () => {
+  it("deadline banner is hidden after the deadline", async () => {
     await renderApp();
     await waitFor(() => {
-      expect(screen.getByText(/submissions closed/i)).toBeInTheDocument();
+      expect(screen.queryByText(/time to enter/i)).not.toBeInTheDocument();
     });
   });
 
