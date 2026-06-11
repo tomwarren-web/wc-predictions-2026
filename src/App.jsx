@@ -144,10 +144,10 @@ function looksLikeEmail(value) {
 }
 
 function getLeaderboardDisplayName(profile) {
-  const name = cleanDisplayText(profile?.name);
-  if (name && !looksLikeEmail(name)) return name;
   const username = cleanDisplayText(profile?.username);
   if (username && !looksLikeEmail(username)) return username;
+  const name = cleanDisplayText(profile?.name);
+  if (name && !looksLikeEmail(name)) return name;
   return "Anonymous";
 }
 
