@@ -60,6 +60,26 @@ describe("scoreMatch", () => {
     expect(r.points).toBe(8);
   });
 
+  it("treats null prediction scores as 0", () => {
+    const r = scoreMatch({ home: null, away: null }, finishedResult(0, 0));
+    expect(r.points).toBe(8);
+  });
+
+  it("treats null normalized prediction scores as 0", () => {
+    const r = scoreMatch({ home_goals: null, away_goals: null }, finishedResult(0, 0));
+    expect(r.points).toBe(8);
+  });
+
+  it("treats a missing home score as 0 when away is entered", () => {
+    const r = scoreMatch({ away: 1 }, finishedResult(0, 1));
+    expect(r.points).toBe(8);
+  });
+
+  it("treats a missing away score as 0 when home is entered", () => {
+    const r = scoreMatch({ home: 1 }, finishedResult(1, 0));
+    expect(r.points).toBe(8);
+  });
+
   it("scores blank prediction scores as a 0-0 prediction", () => {
     const r = scoreMatch({ home: "", away: "" }, finishedResult(1, 0));
     expect(r.points).toBe(0);

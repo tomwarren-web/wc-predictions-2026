@@ -33,6 +33,13 @@ function awardMatches(actual, prediction) {
   return false;
 }
 
+function getPredictionGoal(prediction, legacyKey, normalizedKey) {
+  if (!prediction || typeof prediction !== "object") return undefined;
+  if (Object.prototype.hasOwnProperty.call(prediction, legacyKey)) return prediction[legacyKey];
+  if (Object.prototype.hasOwnProperty.call(prediction, normalizedKey)) return prediction[normalizedKey];
+  return 0;
+}
+
 /**
  * Score a single match prediction against an actual result.
  */
@@ -44,8 +51,8 @@ export function scoreMatch(prediction, result) {
     return { points: 0, breakdown: [] };
   }
 
-  const predH = Number(prediction.home);
-  const predA = Number(prediction.away);
+  const predH = Number(getPredictionGoal(prediction, "home", "home_goals"));
+  const predA = Number(getPredictionGoal(prediction, "away", "away_goals"));
   const actH = result.homeGoals;
   const actA = result.awayGoals;
 

@@ -657,8 +657,7 @@ const STAT_KEYS = ["total_goals"];
 const MAX_MATCH_GOALS = 20;
 
 function parseSmallGoal(v) {
-  if (v === "") return 0;
-  if (v === undefined || v === null) return null;
+  if (v === "" || v === null || v === undefined) return 0;
   const n = Number(v);
   if (!Number.isFinite(n)) return null;
   const whole = Math.trunc(n);

@@ -897,11 +897,20 @@ function ScoreInput({ value, onChange, label, disabled }) {
 }
 
 function hasMatchScorePrediction(prediction) {
-  return prediction?.home !== undefined && prediction?.away !== undefined;
+  if (!prediction || typeof prediction !== "object") return false;
+  return Object.keys(prediction).length > 0;
+}
+
+function getPredictedScoreValue(prediction, side) {
+  if (!prediction || typeof prediction !== "object") return undefined;
+  if (Object.prototype.hasOwnProperty.call(prediction, side)) return prediction[side];
+  const normalizedKey = side === "home" ? "home_goals" : "away_goals";
+  if (Object.prototype.hasOwnProperty.call(prediction, normalizedKey)) return prediction[normalizedKey];
+  return undefined;
 }
 
 function displayPredictedScore(value) {
-  return value === "" ? 0 : value;
+  return value === "" || value === null || value === undefined ? 0 : value;
 }
 
 function NumberInput({ value, onChange, min = 0, max, maxLength, label, disabled }) {
@@ -1943,6 +1952,8 @@ function UserPredictionsPanel({ predictions }) {
             const p = preds[key] || {};
             const hasScore = hasMatchScorePrediction(p);
             const scorer = p.scorer ? formatVal(p.scorer) : null;
+            const homeScore = getPredictedScoreValue(p, "home");
+            const awayScore = getPredictedScoreValue(p, "away");
             return (
               <tr key={key}>
                 <td className="pred-team pred-team--home">
@@ -1950,7 +1961,7 @@ function UserPredictionsPanel({ predictions }) {
                   <span>{m.home}</span>
                 </td>
                 <td className="pred-score">
-                  {hasScore ? `${displayPredictedScore(p.home)}–${displayPredictedScore(p.away)}` : "–"}
+                  {hasScore ? `${displayPredictedScore(homeScore)}–${displayPredictedScore(awayScore)}` : "–"}
                 </td>
                 <td className="pred-team pred-team--away">
                   <TeamFlag team={m.away} size={14} />

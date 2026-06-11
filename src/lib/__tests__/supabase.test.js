@@ -261,6 +261,9 @@ describe("syncNormalizedPredictions", () => {
     // Simulate parseSmallGoal and the filter logic
     const pred = {
       "England-Croatia": { home: "", away: "", scorer: "" },
+      "Brazil-Argentina": { home: null, away: null, scorer: "" },
+      "Egypt-Iran": { home: 1, scorer: "Egypt|Omar Marmoush" },
+      "USA-Turkey": { away: 1, scorer: "Turkey|Semih Kilicsoy" },
       "Mexico-South Africa": { home: 2, away: 0, scorer: "" },
     };
 
@@ -268,21 +271,36 @@ describe("syncNormalizedPredictions", () => {
     for (const [key, raw] of Object.entries(pred)) {
       if (!key.includes("-") || key.startsWith("standings_")) continue;
       const v = raw && typeof raw === "object" ? raw : {};
-      const home_goals = v.home === "" ? 0 : v.home == null ? null : Number(v.home);
-      const away_goals = v.away === "" ? 0 : v.away == null ? null : Number(v.away);
+      const home_goals = v.home === "" || v.home == null ? 0 : Number(v.home);
+      const away_goals = v.away === "" || v.away == null ? 0 : Number(v.away);
       const scorer = v.scorer && String(v.scorer).trim() ? String(v.scorer) : null;
       if (home_goals === null && away_goals === null && !scorer) continue;
       matchRows.push({ match_key: key, home_goals, away_goals, scorer });
     }
 
-    expect(matchRows).toHaveLength(2);
+    expect(matchRows).toHaveLength(5);
     expect(matchRows[0]).toMatchObject({
       match_key: "England-Croatia",
       home_goals: 0,
       away_goals: 0,
     });
-    expect(matchRows[1].match_key).toBe("Mexico-South Africa");
-    expect(matchRows[1].home_goals).toBe(2);
+    expect(matchRows[1]).toMatchObject({
+      match_key: "Brazil-Argentina",
+      home_goals: 0,
+      away_goals: 0,
+    });
+    expect(matchRows[2]).toMatchObject({
+      match_key: "Egypt-Iran",
+      home_goals: 1,
+      away_goals: 0,
+    });
+    expect(matchRows[3]).toMatchObject({
+      match_key: "USA-Turkey",
+      home_goals: 0,
+      away_goals: 1,
+    });
+    expect(matchRows[4].match_key).toBe("Mexico-South Africa");
+    expect(matchRows[4].home_goals).toBe(2);
   });
 
   it("correctly parses standings predictions into row format", () => {
