@@ -570,10 +570,12 @@ export async function fetchAllPredictions() {
     if (!isWcPredictionsMissingError(error)) console.warn("fetchAllPredictions:", error.message);
     return [];
   }
-  return (data || []).map((entry) => ({
-    ...entry,
-    profile: publicLeaderboardProfile(entry?.profile),
-  }));
+  return (data || [])
+    .filter((entry) => entry?.profile?.paid === true)
+    .map((entry) => ({
+      ...entry,
+      profile: publicLeaderboardProfile(entry?.profile),
+    }));
 }
 
 export async function fetchTournamentSettings() {
@@ -655,7 +657,8 @@ const STAT_KEYS = ["total_goals"];
 const MAX_MATCH_GOALS = 20;
 
 function parseSmallGoal(v) {
-  if (v === "" || v === undefined || v === null) return null;
+  if (v === "") return 0;
+  if (v === undefined || v === null) return null;
   const n = Number(v);
   if (!Number.isFinite(n)) return null;
   const whole = Math.trunc(n);

@@ -257,7 +257,7 @@ describe("syncNormalizedPredictions", () => {
     expect(result).toEqual({ ok: true, skipped: true });
   });
 
-  it("filters out empty match prediction rows (all null goals and no scorer)", () => {
+  it("treats blank match scores as 0 when normalizing match prediction rows", () => {
     // Simulate parseSmallGoal and the filter logic
     const pred = {
       "England-Croatia": { home: "", away: "", scorer: "" },
@@ -268,17 +268,21 @@ describe("syncNormalizedPredictions", () => {
     for (const [key, raw] of Object.entries(pred)) {
       if (!key.includes("-") || key.startsWith("standings_")) continue;
       const v = raw && typeof raw === "object" ? raw : {};
-      const home_goals = v.home === "" || v.home == null ? null : Number(v.home);
-      const away_goals = v.away === "" || v.away == null ? null : Number(v.away);
+      const home_goals = v.home === "" ? 0 : v.home == null ? null : Number(v.home);
+      const away_goals = v.away === "" ? 0 : v.away == null ? null : Number(v.away);
       const scorer = v.scorer && String(v.scorer).trim() ? String(v.scorer) : null;
       if (home_goals === null && away_goals === null && !scorer) continue;
       matchRows.push({ match_key: key, home_goals, away_goals, scorer });
     }
 
-    // Only Mexico-South Africa should be inserted
-    expect(matchRows).toHaveLength(1);
-    expect(matchRows[0].match_key).toBe("Mexico-South Africa");
-    expect(matchRows[0].home_goals).toBe(2);
+    expect(matchRows).toHaveLength(2);
+    expect(matchRows[0]).toMatchObject({
+      match_key: "England-Croatia",
+      home_goals: 0,
+      away_goals: 0,
+    });
+    expect(matchRows[1].match_key).toBe("Mexico-South Africa");
+    expect(matchRows[1].home_goals).toBe(2);
   });
 
   it("correctly parses standings predictions into row format", () => {

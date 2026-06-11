@@ -55,7 +55,12 @@ describe("scoreMatch", () => {
     expect(r.points).toBe(0);
   });
 
-  it("returns 0 points when prediction scores are empty strings", () => {
+  it("treats blank prediction scores as 0", () => {
+    const r = scoreMatch({ home: "", away: "" }, finishedResult(0, 0));
+    expect(r.points).toBe(8);
+  });
+
+  it("scores blank prediction scores as a 0-0 prediction", () => {
     const r = scoreMatch({ home: "", away: "" }, finishedResult(1, 0));
     expect(r.points).toBe(0);
   });

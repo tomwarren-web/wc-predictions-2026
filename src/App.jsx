@@ -896,6 +896,14 @@ function ScoreInput({ value, onChange, label, disabled }) {
   );
 }
 
+function hasMatchScorePrediction(prediction) {
+  return prediction?.home !== undefined && prediction?.away !== undefined;
+}
+
+function displayPredictedScore(value) {
+  return value === "" ? 0 : value;
+}
+
 function NumberInput({ value, onChange, min = 0, max, maxLength, label, disabled }) {
   return (
     <div className="number-input-row">
@@ -1570,7 +1578,7 @@ function MatchesScreen({ preds, setPreds, results, readOnly, activeGroup, setAct
     const matches = GROUP_MATCHES.filter(m => m.group === g);
     return matches.every(m => {
       const p = preds[`${m.home}-${m.away}`];
-      return p && p.home !== "" && p.away !== "";
+      return hasMatchScorePrediction(p);
     });
   };
   const totalDone = groups.filter(g => groupDone(g)).length;
@@ -1611,7 +1619,7 @@ function MatchesScreen({ preds, setPreds, results, readOnly, activeGroup, setAct
                 <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
                   {result?.isLive && <span className="live-badge">● LIVE {result.minute}'</span>}
                   {result?.isFinished && <span className="ft-badge">{result.status}</span>}
-                  {p.home !== undefined && p.away !== undefined && p.home !== "" && p.away !== "" && (
+                  {hasMatchScorePrediction(p) && (
                     <span className="completion-badge">✓ Predicted</span>
                   )}
                   {canScore && (
@@ -1933,7 +1941,7 @@ function UserPredictionsPanel({ predictions }) {
           {groupMatches.map(m => {
             const key = `${m.home}-${m.away}`;
             const p = preds[key] || {};
-            const hasScore = p.home !== undefined && p.home !== "" && p.away !== undefined && p.away !== "";
+            const hasScore = hasMatchScorePrediction(p);
             const scorer = p.scorer ? formatVal(p.scorer) : null;
             return (
               <tr key={key}>
@@ -1941,7 +1949,9 @@ function UserPredictionsPanel({ predictions }) {
                   <TeamFlag team={m.home} size={14} />
                   <span>{m.home}</span>
                 </td>
-                <td className="pred-score">{hasScore ? `${p.home}–${p.away}` : "–"}</td>
+                <td className="pred-score">
+                  {hasScore ? `${displayPredictedScore(p.home)}–${displayPredictedScore(p.away)}` : "–"}
+                </td>
                 <td className="pred-team pred-team--away">
                   <TeamFlag team={m.away} size={14} />
                   <span>{m.away}</span>
@@ -2257,7 +2267,7 @@ function SubmitScreen({ preds, profile, onPay, paymentLoading, submissionClosed 
   const totalMatches = GROUP_MATCHES.length;
   const matchesDone = GROUP_MATCHES.filter(m => {
     const p = preds[`${m.home}-${m.away}`];
-    return p && p.home !== "" && p.away !== "";
+    return hasMatchScorePrediction(p);
   }).length;
 
   const totalGroups = Object.keys(TEAMS).length;
@@ -2430,7 +2440,12 @@ export default function App() {
   const leaderboardAvailable = submissionClosed || Boolean(profile?.paid);
   const paidHomeScreen = submissionClosed ? "leaderboard" : "matches";
   const analyticsAdmin = isAnalyticsAdminProfile(profile);
-  const predictionsReadOnly = Boolean(profile?.locked || submissionClosed || paymentReturnPending);
+  const profileManuallyUnlocked = profile?.locked === false;
+  const predictionsReadOnly = Boolean(
+    profile?.locked === true ||
+    (submissionClosed && !profileManuallyUnlocked) ||
+    paymentReturnPending,
+  );
   const currentSectionHasUnsavedChanges = useMemo(
     () => !predictionsReadOnly &&
       PREDICTION_SCREENS.includes(screen) &&
@@ -3098,7 +3113,11 @@ export default function App() {
       setScreen(nextTarget.screen);
       persistLocal(preds, nextTarget.screen);
     };
-    if (profile?.locked || Date.now() >= getSubmissionDeadlineMs(results, deadlineSettings)) {
+    if (
+      profile?.locked === true ||
+      (Date.now() >= getSubmissionDeadlineMs(results, deadlineSettings) && profile?.locked !== false) ||
+      paymentReturnPending
+    ) {
       const error = "Predictions are locked — no changes can be saved.";
       showToast(error);
       return { ok: false, error };
@@ -3184,17 +3203,9 @@ export default function App() {
           />
         )}
 
-        {screen !== "signup" && (
-          <div className={`deadline-banner${submissionClosed ? " closed" : ""}`} role="status">
-            {submissionClosed ? (
-              <>
-                <strong>Submissions closed</strong> — predictions are locked (deadline was {deadlineLabel})
-              </>
-            ) : (
-              <>
-                <strong>Time to enter:</strong> {countdownLabel} · deadline {deadlineLabel} · first kick-off {firstKickoffLabel}
-              </>
-            )}
+        {screen !== "signup" && !submissionClosed && (
+          <div className="deadline-banner" role="status">
+            <strong>Time to enter:</strong> {countdownLabel} · deadline {deadlineLabel} · first kick-off {firstKickoffLabel}
           </div>
         )}
 
@@ -3211,7 +3222,9 @@ export default function App() {
         {profile?.paid && !predictionsReadOnly && ["matches", "standings", "outrights"].includes(screen) && (
           <div className="section" style={{ paddingBottom: 0 }}>
             <div className="paid-banner">
-              Entry paid — you can keep editing and saving predictions until the deadline.
+              {submissionClosed
+                ? "Entry reopened by organiser — you can edit and save predictions again."
+                : "Entry paid — you can keep editing and saving predictions until the deadline."}
             </div>
           </div>
         )}

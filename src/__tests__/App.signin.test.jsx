@@ -11,6 +11,7 @@ import {
 
 const FALLBACK_DEADLINE_MS = Date.parse("2026-06-11T21:00:00.000Z");
 const BEFORE_DEADLINE = FALLBACK_DEADLINE_MS - 7 * 24 * 60 * 60 * 1000;
+const AFTER_DEADLINE = FALLBACK_DEADLINE_MS + 60_000;
 const STORAGE_KEY = "wc-predictions-2026";
 
 vi.mock("../lib/supabase.js", () => ({
@@ -157,6 +158,40 @@ describe("sign-in navigation", () => {
     });
     expect(screen.queryByText(/submit & pay/i)).not.toBeInTheDocument();
     expect(screen.getByText(/entry paid/i)).toBeInTheDocument();
+  });
+
+  it("lets an organiser-unlocked paid profile edit predictions after the deadline", async () => {
+    vi.setSystemTime(AFTER_DEADLINE);
+    ensureProfileFromAuthSession.mockResolvedValue({
+      ok: true,
+      profile: {
+        id: "user-abc",
+        email: "player@example.com",
+        name: "Unlocked Player",
+        username: "unlockedplayer",
+        paid: true,
+        locked: false,
+      },
+    });
+
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("tab", { name: /sign in/i }));
+    fireEvent.change(screen.getByLabelText(/email address/i), {
+      target: { value: "player@example.com" },
+    });
+    fireEvent.change(screen.getByLabelText(/password/i), {
+      target: { value: "correct-password" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /sign in/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("tab", { name: /matches/i })).toHaveAttribute("aria-selected", "true");
+    });
+
+    expect(screen.getAllByLabelText(/Mexico goals/i)[0]).not.toBeDisabled();
+    expect(screen.getByRole("button", { name: /save predictions/i })).toBeInTheDocument();
+    expect(screen.getByText(/reopened by organiser/i)).toBeInTheDocument();
   });
 
   it("signs out, returns to the landing page, and clears persisted entry state", async () => {
