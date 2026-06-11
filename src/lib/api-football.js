@@ -124,6 +124,7 @@ async function apiFetch(endpoint, params = {}) {
 }
 
 async function fetchSharedResults() {
+  if (import.meta.env.MODE === "test") return null;
   if (!supabase) return null;
   const { data, error } = await supabase.functions.invoke("football-results", {
     body: {},

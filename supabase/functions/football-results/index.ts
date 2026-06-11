@@ -3,15 +3,20 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const API_KEY = Deno.env.get("API_FOOTBALL_KEY") || Deno.env.get("VITE_API_FOOTBALL_KEY");
+const FOOTBALL_DATA_TOKEN = Deno.env.get("FOOTBALL_DATA_TOKEN") || Deno.env.get("FOOTBALL_DATA_ORG_TOKEN");
+const FOOTBALL_DATA_BASE_URL = "https://api.football-data.org/v4";
+const FOOTBALL_DATA_COMPETITION = Deno.env.get("FOOTBALL_DATA_COMPETITION") || "WC";
 const BASE_URL = "https://v3.football.api-sports.io";
 const LEAGUE_ID = 1;
 const SEASON = 2026;
-const CACHE_KEY = "api_football_results_cache";
+const CACHE_KEY = "football_results_cache_v2";
+const RATE_LIMIT_KEY = "football_data_rate_limit_v1";
 
 const LIVE_CACHE_TTL_MS = Number(Deno.env.get("RESULTS_LIVE_CACHE_TTL_MS") || 10 * 60 * 1000);
 const IDLE_CACHE_TTL_MS = Number(Deno.env.get("RESULTS_IDLE_CACHE_TTL_MS") || 60 * 60 * 1000);
 const AUX_CACHE_TTL_MS = Number(Deno.env.get("RESULTS_AUX_CACHE_TTL_MS") || 6 * 60 * 60 * 1000);
 const MAX_EVENT_FETCHES_PER_REFRESH = Number(Deno.env.get("RESULTS_MAX_EVENT_FETCHES") || 20);
+const MIN_FOOTBALL_DATA_REQUESTS_AVAILABLE = Number(Deno.env.get("MIN_FOOTBALL_DATA_REQUESTS_AVAILABLE") || 5);
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -27,8 +32,13 @@ const TEAM_ALIAS: Record<string, string> = {
   "Cote d'Ivoire": "Ivory Coast",
   "Côte d'Ivoire": "Ivory Coast",
   Curacao: "Curaçao",
+  Czechia: "Czech Republic",
   "Cape Verde Islands": "Cape Verde",
+  "Bosnia and Herzegovina": "Bosnia-Herzegovina",
+  "Congo DR": "DR Congo",
+  "DR Congo": "DR Congo",
   "United States": "USA",
+  "United States of America": "USA",
   "Saudi-Arabia": "Saudi Arabia",
 };
 
@@ -82,6 +92,56 @@ async function apiFetch(endpoint: string, params: Record<string, string | number
     throw new Error(`API-Football: ${Object.values(body.errors).join(", ")}`);
   }
   return body.response;
+}
+
+function parseHeaderInt(headers: Headers, name: string) {
+  const value = headers.get(name);
+  if (!value) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+async function footballDataFetch(supabase: any, endpoint: string, params: Record<string, string | number> = {}) {
+  if (!FOOTBALL_DATA_TOKEN) throw new Error("FOOTBALL_DATA_TOKEN is not configured.");
+  const url = new URL(`${FOOTBALL_DATA_BASE_URL}${endpoint}`);
+  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, String(value)));
+
+  const res = await fetch(url.toString(), {
+    headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN },
+  });
+
+  const requestsAvailable = parseHeaderInt(res.headers, "X-RequestsAvailable");
+  const resetSeconds = parseHeaderInt(res.headers, "X-RequestCounter-Reset");
+  const resetAt = resetSeconds == null ? null : Date.now() + resetSeconds * 1000;
+
+  if (res.status === 429) {
+    await writeFootballDataRateLimit(supabase, {
+      throttledUntil: resetAt ?? Date.now() + 60_000,
+      requestsAvailable: 0,
+      resetSeconds,
+      reason: "429",
+      updatedAt: Date.now(),
+    });
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`football-data.org ${res.status}: ${body || res.statusText}`);
+  }
+
+  const body = await res.json();
+
+  if (requestsAvailable != null && requestsAvailable <= MIN_FOOTBALL_DATA_REQUESTS_AVAILABLE) {
+    await writeFootballDataRateLimit(supabase, {
+      throttledUntil: resetAt ?? Date.now() + 60_000,
+      requestsAvailable,
+      resetSeconds,
+      reason: "low_remaining",
+      updatedAt: Date.now(),
+    });
+  }
+
+  return body;
 }
 
 function getMatchWinner(match: any) {
@@ -151,6 +211,35 @@ function parseTopScorers(scorersData: any[]) {
     goals: scorer.statistics?.[0]?.goals?.total || 0,
     key: `${normalizeTeamName(scorer.statistics?.[0]?.team?.name)}|${scorer.player?.name}`,
   }));
+}
+
+function footballDataStatus(match: any) {
+  const status = String(match?.status || "").toUpperCase();
+  const isLive = status === "IN_PLAY" || status === "PAUSED" || status === "LIVE";
+  const isFinished = status === "FINISHED";
+  return { status, isLive, isFinished };
+}
+
+function footballDataGoals(match: any) {
+  const score = match?.score || {};
+  const fullTime = score.fullTime || {};
+  const regularTime = score.regularTime || {};
+  return {
+    homeGoals: fullTime.home ?? regularTime.home ?? score.home ?? null,
+    awayGoals: fullTime.away ?? regularTime.away ?? score.away ?? null,
+    homePenaltyGoals: score.penalties?.home ?? null,
+    awayPenaltyGoals: score.penalties?.away ?? null,
+  };
+}
+
+function parseFootballDataStandings(standingsData: any) {
+  const groupStandings: Record<string, string[]> = {};
+  for (const standing of standingsData?.standings || []) {
+    const groupName = String(standing.group || "").replace("GROUP_", "").replace("Group ", "").trim();
+    if (!groupName || !Array.isArray(standing.table)) continue;
+    groupStandings[groupName] = standing.table.map((row: any) => normalizeTeamName(row.team?.shortName || row.team?.name));
+  }
+  return groupStandings;
 }
 
 function buildTournamentResults(matchMap: Record<string, any>) {
@@ -263,6 +352,54 @@ async function writeCache(supabase: any, results: Record<string, unknown>) {
   if (error) console.warn("Could not write football results cache:", error.message);
 }
 
+async function readFootballDataRateLimit(supabase: any) {
+  const { data, error } = await supabase
+    .from("app_settings")
+    .select("value")
+    .eq("key", RATE_LIMIT_KEY)
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Could not read football-data.org rate limit state:", error.message);
+    return null;
+  }
+
+  try {
+    return data?.value ? JSON.parse(data.value) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function writeFootballDataRateLimit(supabase: any, state: Record<string, unknown>) {
+  const { error } = await supabase
+    .from("app_settings")
+    .upsert({
+      key: RATE_LIMIT_KEY,
+      value: JSON.stringify(state),
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "key" });
+
+  if (error) console.warn("Could not write football-data.org rate limit state:", error.message);
+}
+
+function isFootballDataThrottled(state: any, now: number) {
+  return typeof state?.throttledUntil === "number" && state.throttledUntil > now;
+}
+
+function withStaleCacheMetadata(cached: any, reason: string, extra: Record<string, unknown> = {}) {
+  return {
+    ...cached,
+    cache: {
+      ...(cached?.cache || {}),
+      hit: true,
+      stale: true,
+      reason,
+      ...extra,
+    },
+  };
+}
+
 async function fetchGoalEvents(fixtureId: number) {
   const events = await apiFetch("/fixtures/events", { fixture: fixtureId, type: "Goal" }).catch(() => []);
   const scorers: string[] = [];
@@ -365,6 +502,67 @@ async function fetchFreshResults(cached: any) {
   return results;
 }
 
+async function fetchFootballDataResults(supabase: any, cached: any) {
+  const now = Date.now();
+  const matchesData = await footballDataFetch(supabase, `/competitions/${FOOTBALL_DATA_COMPETITION}/matches`, { season: SEASON });
+  const shouldRefreshAux =
+    !cached ||
+    !cached.auxFetchedAt ||
+    now - Number(cached.auxFetchedAt) > AUX_CACHE_TTL_MS ||
+    !cached.standings ||
+    !cached.topScorers;
+
+  const standingsData = shouldRefreshAux
+    ? await footballDataFetch(supabase, `/competitions/${FOOTBALL_DATA_COMPETITION}/standings`, { season: SEASON }).catch(() => null)
+    : null;
+
+  let hasLive = false;
+  const matchMap: Record<string, any> = {};
+
+  for (const match of matchesData?.matches || []) {
+    const homeTeam = normalizeTeamName(match.homeTeam?.shortName || match.homeTeam?.name);
+    const awayTeam = normalizeTeamName(match.awayTeam?.shortName || match.awayTeam?.name);
+    if (!homeTeam || !awayTeam) continue;
+
+    const { status, isLive, isFinished } = footballDataStatus(match);
+    const goals = footballDataGoals(match);
+    if (isLive) hasLive = true;
+
+    matchMap[`${homeTeam}-${awayTeam}`] = {
+      fixtureId: match.id,
+      date: match.utcDate,
+      status,
+      statusLong: status,
+      minute: null,
+      homeTeam,
+      awayTeam,
+      ...goals,
+      round: match.stage || match.group || "",
+      isLive,
+      isFinished,
+      scorers: [],
+      scorersFetched: true,
+      provider: "football-data.org",
+    };
+  }
+
+  const auxFetchedAt = shouldRefreshAux ? now : cached.auxFetchedAt;
+  return {
+    matches: matchMap,
+    standings: shouldRefreshAux ? parseFootballDataStandings(standingsData) : cached.standings,
+    topScorers: shouldRefreshAux ? [] : cached.topScorers,
+    tournamentResults: buildTournamentResults(matchMap),
+    englandProgress: computeEnglandProgress(matchMap),
+    stats: buildStats(matchMap),
+    hasLive,
+    fetchedAt: now,
+    auxFetchedAt,
+    eventFetchesThisRefresh: 0,
+    provider: "football-data.org",
+    cache: { hit: false, ttlMs: hasLive ? LIVE_CACHE_TTL_MS : IDLE_CACHE_TTL_MS },
+  };
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -372,7 +570,9 @@ serve(async (req) => {
   try {
     const serviceKey = getSupabaseServiceKey();
     if (!serviceKey) return json({ error: "Supabase service key is not configured." }, 500);
-    if (!API_KEY) return json({ error: "API_FOOTBALL_KEY is not configured." }, 500);
+    if (!FOOTBALL_DATA_TOKEN && !API_KEY) {
+      return json({ error: "FOOTBALL_DATA_TOKEN or API_FOOTBALL_KEY is not configured." }, 500);
+    }
 
     const supabase = createClient(supabaseUrl, serviceKey);
     const cached = await readCache(supabase);
@@ -387,7 +587,27 @@ serve(async (req) => {
       });
     }
 
-    const results = await fetchFreshResults(cached);
+    const rateLimitState = FOOTBALL_DATA_TOKEN ? await readFootballDataRateLimit(supabase) : null;
+    if (FOOTBALL_DATA_TOKEN && cached && isFootballDataThrottled(rateLimitState, now)) {
+      return json(withStaleCacheMetadata(cached, "football-data-rate-limit", {
+        throttledUntil: rateLimitState.throttledUntil,
+        requestsAvailable: rateLimitState.requestsAvailable,
+      }));
+    }
+
+    let results;
+    try {
+      results = FOOTBALL_DATA_TOKEN
+        ? await fetchFootballDataResults(supabase, cached)
+        : await fetchFreshResults(cached);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (FOOTBALL_DATA_TOKEN && cached && /429|rate|thrott/i.test(message)) {
+        return json(withStaleCacheMetadata(cached, "football-data-rate-limit-error", { error: message }));
+      }
+      throw err;
+    }
+
     await writeCache(supabase, results);
     return json(results);
   } catch (err) {
