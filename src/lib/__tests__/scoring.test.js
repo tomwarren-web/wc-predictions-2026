@@ -144,6 +144,14 @@ describe("scoreMatch", () => {
     expect(r.points).toBe(8);
   });
 
+  it("0 scorer points when the same player name is recorded for the wrong team", () => {
+    const r = scoreMatch(
+      { home: 1, away: 0, scorer: "England|Harry Kane" },
+      finishedResult(1, 0, ["Croatia|Harry Kane"]),
+    );
+    expect(r.points).toBe(8);
+  });
+
   it("0 scorer points when result has no scorers array", () => {
     const r = scoreMatch(
       { home: 1, away: 0, scorer: "England|Harry Kane" },

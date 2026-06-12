@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { parseFootballDataScorers } from "./football-data.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const API_KEY = Deno.env.get("API_FOOTBALL_KEY") || Deno.env.get("VITE_API_FOOTBALL_KEY");
@@ -101,13 +102,18 @@ function parseHeaderInt(headers: Headers, name: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-async function footballDataFetch(supabase: any, endpoint: string, params: Record<string, string | number> = {}) {
+async function footballDataFetch(
+  supabase: any,
+  endpoint: string,
+  params: Record<string, string | number> = {},
+  extraHeaders: Record<string, string> = {},
+) {
   if (!FOOTBALL_DATA_TOKEN) throw new Error("FOOTBALL_DATA_TOKEN is not configured.");
   const url = new URL(`${FOOTBALL_DATA_BASE_URL}${endpoint}`);
   Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, String(value)));
 
   const res = await fetch(url.toString(), {
-    headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN },
+    headers: { "X-Auth-Token": FOOTBALL_DATA_TOKEN, ...extraHeaders },
   });
 
   const requestsAvailable = parseHeaderInt(res.headers, "X-RequestsAvailable");
@@ -230,6 +236,10 @@ function footballDataGoals(match: any) {
     homePenaltyGoals: score.penalties?.home ?? null,
     awayPenaltyGoals: score.penalties?.away ?? null,
   };
+}
+
+function hasRecordedGoals(match: any) {
+  return Number(match?.homeGoals || 0) + Number(match?.awayGoals || 0) > 0;
 }
 
 function parseFootballDataStandings(standingsData: any) {
@@ -504,7 +514,17 @@ async function fetchFreshResults(cached: any) {
 
 async function fetchFootballDataResults(supabase: any, cached: any) {
   const now = Date.now();
-  const matchesData = await footballDataFetch(supabase, `/competitions/${FOOTBALL_DATA_COMPETITION}/matches`, { season: SEASON });
+  const cachedMatchesByFixtureId = new Map<number, any>();
+  for (const match of Object.values(cached?.matches || {}) as any[]) {
+    if (typeof match?.fixtureId === "number") cachedMatchesByFixtureId.set(match.fixtureId, match);
+  }
+
+  const matchesData = await footballDataFetch(
+    supabase,
+    `/competitions/${FOOTBALL_DATA_COMPETITION}/matches`,
+    { season: SEASON },
+    { "X-Unfold-Goals": "true" },
+  );
   const shouldRefreshAux =
     !cached ||
     !cached.auxFetchedAt ||
@@ -518,6 +538,7 @@ async function fetchFootballDataResults(supabase: any, cached: any) {
 
   let hasLive = false;
   const matchMap: Record<string, any> = {};
+  const detailFetchIds: number[] = [];
 
   for (const match of matchesData?.matches || []) {
     const homeTeam = normalizeTeamName(match.homeTeam?.shortName || match.homeTeam?.name);
@@ -526,9 +547,13 @@ async function fetchFootballDataResults(supabase: any, cached: any) {
 
     const { status, isLive, isFinished } = footballDataStatus(match);
     const goals = footballDataGoals(match);
+    const cachedMatch = cachedMatchesByFixtureId.get(match.id);
+    const cachedScorers = Array.isArray(cachedMatch?.scorers) ? cachedMatch.scorers : [];
+    const scorers = parseFootballDataScorers(match, normalizeTeamName);
+    const resolvedScorers = scorers.length ? scorers : cachedScorers;
     if (isLive) hasLive = true;
 
-    matchMap[`${homeTeam}-${awayTeam}`] = {
+    const matchEntry = {
       fixtureId: match.id,
       date: match.utcDate,
       status,
@@ -540,10 +565,30 @@ async function fetchFootballDataResults(supabase: any, cached: any) {
       round: match.stage || match.group || "",
       isLive,
       isFinished,
-      scorers: [],
-      scorersFetched: true,
+      scorers: resolvedScorers,
+      scorersFetched: Boolean(cachedMatch?.scorersFetched || scorers.length),
       provider: "football-data.org",
     };
+
+    if (
+      (isLive || isFinished) &&
+      hasRecordedGoals(matchEntry) &&
+      !matchEntry.scorers.length &&
+      matchEntry.scorersFetched !== true &&
+      detailFetchIds.length < MAX_EVENT_FETCHES_PER_REFRESH
+    ) {
+      detailFetchIds.push(match.id);
+    }
+
+    matchMap[`${homeTeam}-${awayTeam}`] = matchEntry;
+  }
+
+  for (const fixtureId of detailFetchIds) {
+    const entry = Object.values(matchMap).find((match) => match.fixtureId === fixtureId);
+    if (!entry) continue;
+    const details = await footballDataFetch(supabase, `/matches/${fixtureId}`, {}, { "X-Unfold-Goals": "true" }).catch(() => null);
+    entry.scorers = parseFootballDataScorers(details, normalizeTeamName);
+    entry.scorersFetched = !entry.isLive;
   }
 
   const auxFetchedAt = shouldRefreshAux ? now : cached.auxFetchedAt;
@@ -557,7 +602,7 @@ async function fetchFootballDataResults(supabase: any, cached: any) {
     hasLive,
     fetchedAt: now,
     auxFetchedAt,
-    eventFetchesThisRefresh: 0,
+    eventFetchesThisRefresh: detailFetchIds.length,
     provider: "football-data.org",
     cache: { hit: false, ttlMs: hasLive ? LIVE_CACHE_TTL_MS : IDLE_CACHE_TTL_MS },
   };

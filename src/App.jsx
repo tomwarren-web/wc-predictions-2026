@@ -25,7 +25,7 @@ import {
 } from "./lib/supabase";
 import { isApiFootballConfigured, fetchAllResults, hasLiveMatches, getMatchResultForTeams } from "./lib/api-football";
 import { getSubmissionDeadlineMs, getFirstKickoffMs, formatCountdown, formatDeadlineLocal } from "./lib/tournament-deadline";
-import { scorePredictions, scoreMatch } from "./lib/scoring";
+import { scorePredictions, scoreMatch, scoreOutrights, scoreStats } from "./lib/scoring";
 import { PLAYERS } from "./data/players";
 import heroImg from "./assets/hero.png";
 
@@ -246,6 +246,15 @@ function renderPlayerOptGroups(teams) {
     ));
 }
 
+function formatActualScorer(scorerKey) {
+  if (!scorerKey || typeof scorerKey !== "string") return "";
+  const sep = scorerKey.indexOf("|");
+  if (sep === -1) return scorerKey;
+  const team = scorerKey.slice(0, sep).trim();
+  const player = scorerKey.slice(sep + 1).trim();
+  return player ? `${player} (${team})` : scorerKey;
+}
+
 const GROUP_MATCHES = Object.entries(TEAMS).flatMap(([group, teams]) => [
   { group, home: teams[0], away: teams[1] },
   { group, home: teams[2], away: teams[3] },
@@ -285,12 +294,12 @@ const COLORS = {
 const css = `
   @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800;900&family=Barlow:wght@400;500;600;700&family=Noto+Sans:wght@400;600;700&display=swap');
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
-  body { font-family: 'Noto Sans', sans-serif; background: #000; color: #fff; min-height: 100vh; -webkit-tap-highlight-color: transparent; }
+  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; overflow-x: clip; }
+  body { font-family: 'Noto Sans', sans-serif; background: #000; color: #fff; min-height: 100vh; min-height: 100dvh; -webkit-tap-highlight-color: transparent; overflow-x: clip; }
   *:focus-visible { outline: 2px solid ${COLORS.gold}; outline-offset: 2px; }
   input:focus-visible, select:focus-visible { outline-offset: 0; }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
-  .app { width: min(100%, 1120px); margin: 0 auto; padding: 0 0 80px; padding-bottom: max(80px, calc(60px + env(safe-area-inset-bottom, 0px))); }
+  .app { width: min(100%, 1120px); margin: 0 auto; padding: 0 0 80px; padding-left: max(0px, env(safe-area-inset-left, 0px)); padding-right: max(0px, env(safe-area-inset-right, 0px)); padding-bottom: max(80px, calc(60px + env(safe-area-inset-bottom, 0px))); max-width: 100vw; }
   .app-landing { width: 100%; max-width: none; }
 
   .hero { background: #000; padding: 0; border-bottom: 1px solid #222; position: relative; overflow: hidden; }
@@ -307,7 +316,7 @@ const css = `
   .hero-tag { font-family: 'Barlow', sans-serif; font-size: 0.72rem; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: #666; border: 1px solid #2a2a2a; border-radius: 3px; padding: 4px 10px; }
   .hero-divider { height: 3px; background: ${COLORS.gold}; }
 
-  .nav { display: flex; align-items: stretch; gap: 0; background: #0a0a0a; border-bottom: 1px solid #1e1e1e; position: sticky; top: 0; z-index: 10; overflow: visible; }
+  .nav { display: flex; align-items: stretch; gap: 0; background: #0a0a0a; border-bottom: 1px solid #1e1e1e; position: sticky; top: 0; z-index: 10; overflow: visible; padding-top: env(safe-area-inset-top, 0px); }
   .nav-tabs-scroll { display: flex; flex: 1; min-width: 0; overflow-x: auto; gap: 0; -webkit-overflow-scrolling: touch; scrollbar-width: none; -ms-overflow-style: none; }
   .nav-tabs-scroll::-webkit-scrollbar { display: none; }
   .nav-btn { flex-shrink: 0; padding: 13px 18px; font-family: 'Barlow Condensed', sans-serif; font-size: 0.85rem; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; background: none; border: none; color: #555; cursor: pointer; white-space: nowrap; border-bottom: 3px solid transparent; transition: all 0.2s; min-height: 48px; display: flex; align-items: center; }
@@ -340,7 +349,7 @@ const css = `
   .section { padding: 1.5rem clamp(1rem, 2.5vw, 2rem); }
   .section-title { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.8rem; letter-spacing: 1px; text-transform: uppercase; color: #fff; margin-bottom: 2px; }
   .section-title-line { width: 36px; height: 3px; background: ${COLORS.gold}; margin-bottom: 10px; }
-  .section-sub { font-size: 0.82rem; color: #666; margin-bottom: 1.2rem; font-family: 'Noto Sans', sans-serif; }
+  .section-sub { font-size: 0.82rem; color: #666; margin-bottom: 1.2rem; font-family: 'Noto Sans', sans-serif; line-height: 1.55; }
 
   .card-header { background: #111; padding: 8px 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #1e1e1e; }
   .group-badge { font-family: 'Barlow Condensed', sans-serif; font-weight: 800; font-size: 0.85rem; letter-spacing: 2px; text-transform: uppercase; color: ${COLORS.gold}; }
@@ -394,9 +403,9 @@ const css = `
   .lb-rank.top1 { color: ${COLORS.gold}; }
   .lb-rank.top2 { color: #c0c0c0; }
   .lb-rank.top3 { color: #cd7f32; }
-  .lb-avatar { width: 38px; height: 38px; border-radius: 0; background: #1a1a1a; border: 1px solid #2a2a2a; display: flex; align-items: center; justify-content: center; font-size: 0.72rem; font-weight: 800; color: ${COLORS.gold}; flex-shrink: 0; font-family: 'Barlow Condensed', sans-serif; letter-spacing: 1px; }
-  .lb-name { flex: 1; font-weight: 700; font-size: 0.9rem; font-family: 'Barlow', sans-serif; text-transform: uppercase; letter-spacing: 0.5px; }
-  .lb-pts { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.3rem; color: ${COLORS.gold}; }
+  .lb-row-main { flex: 1; min-width: 0; }
+  .lb-name { font-weight: 700; font-size: 0.9rem; font-family: 'Barlow', sans-serif; text-transform: uppercase; letter-spacing: 0.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lb-pts { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.3rem; color: ${COLORS.gold}; flex-shrink: 0; white-space: nowrap; }
 
   .progress-bar { height: 3px; background: #1a1a1a; border-radius: 0; margin: 4px 0 12px; overflow: hidden; }
   .progress-fill { height: 100%; background: ${COLORS.gold}; border-radius: 0; transition: width 0.4s ease; }
@@ -452,6 +461,9 @@ const css = `
   .actual-score-row { display: flex; align-items: center; gap: 14px; justify-content: center; padding: 4px 0; }
   .actual-score-val { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 2.2rem; color: #fff; min-width: 40px; text-align: center; line-height: 1; }
   .actual-score-divider { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.4rem; color: #333; }
+  .actual-scorers { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(201,168,76,0.12); }
+  .actual-scorers-label { display: block; font-family: 'Barlow Condensed', sans-serif; font-size: 0.62rem; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: #888; margin-bottom: 6px; }
+  .actual-scorers-list { font-family: 'Noto Sans', sans-serif; font-size: 0.78rem; color: #bbb; line-height: 1.5; }
   .match-pts-earned { margin-top: 10px; padding: 8px 12px; background: rgba(76,175,80,0.06); border: 1px solid rgba(76,175,80,0.15); display: inline-block; }
   .match-pts-earned.zero { background: transparent; border-color: transparent; }
   .match-pts-total { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.1rem; color: #4CAF50; letter-spacing: 0.5px; }
@@ -469,8 +481,9 @@ const css = `
   .lb-chevron { font-size: 0.65rem; color: #444; transition: transform 0.2s; flex-shrink: 0; }
   .lb-chevron.open { transform: rotate(180deg); }
   .lb-pred-panel { background: #0c0c0c; border: 1px solid #222; border-top: none; margin: 0 -14px; padding: 14px; margin-bottom: 12px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .lb-pred-panel .group-tabs { margin-bottom: 10px; flex-wrap: wrap; gap: 4px; }
-  .lb-pred-panel .group-tab { font-size: 0.68rem; padding: 4px 8px; }
+  .lb-pred-panel .group-tabs { margin-bottom: 10px; flex-wrap: nowrap; overflow-x: auto; gap: 4px; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .lb-pred-panel .group-tabs::-webkit-scrollbar { display: none; }
+  .lb-pred-panel .group-tab { font-size: 0.68rem; padding: 4px 8px; flex: 0 0 auto; min-height: 36px; }
   .pred-table { width: 100%; border-collapse: collapse; font-size: 0.72rem; }
   .pred-table td { padding: 5px 6px; border-bottom: 1px solid #181818; vertical-align: middle; white-space: nowrap; }
   .pred-table tr:last-child td { border-bottom: none; }
@@ -480,15 +493,39 @@ const css = `
   .pred-team span { vertical-align: middle; margin: 0 4px; }
   .pred-score { text-align: center; font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1rem; color: ${COLORS.gold}; width: 56px; letter-spacing: 1px; }
   .pred-scorer { color: #555; font-size: 0.65rem; padding-left: 8px; max-width: 100px; overflow: hidden; text-overflow: ellipsis; }
-  .pred-outrights { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 6px; margin-top: 10px; }
-  .pred-outright-item { background: #111; border: 1px solid #1e1e1e; padding: 7px 10px; }
+  .pred-table thead th { padding: 0 6px 8px; font-family: 'Barlow Condensed', sans-serif; font-size: 0.62rem; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: #666; border-bottom: 1px solid #222; }
+  .pred-table thead th.pred-th-pts { text-align: right; color: ${COLORS.gold}; }
+  .pred-table tr.pred-row-earned td { background: rgba(76,175,80,0.06); }
+  .pred-table tr.pred-row-earned td:first-child { box-shadow: inset 3px 0 0 #4CAF50; }
+  .pred-pts-cell { text-align: right; vertical-align: middle; white-space: normal; min-width: 88px; padding-left: 10px !important; }
+  .pred-pts-pill { display: inline-block; font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 0.95rem; padding: 4px 10px; border-radius: 2px; background: rgba(255,255,255,0.05); border: 1px solid #3a3a3a; color: #777; letter-spacing: 0.5px; line-height: 1.2; }
+  .pred-pts-pill.earned { background: rgba(76,175,80,0.22); border-color: #4CAF50; color: #fff; box-shadow: 0 0 10px rgba(76,175,80,0.18); }
+  .pred-pts-pill.pending { background: rgba(201,168,76,0.08); border-color: rgba(201,168,76,0.28); color: #999; font-size: 0.82rem; }
+  .pred-outrights { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 6px; margin-top: 14px; }
+  .pred-outrights-label { font-family: 'Barlow Condensed', sans-serif; font-size: 0.62rem; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: ${COLORS.gold}; margin-bottom: 8px; }
+  .pred-outright-item { background: #111; border: 1px solid #1e1e1e; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .pred-outright-item.earned { background: rgba(76,175,80,0.06); border-color: rgba(76,175,80,0.35); }
+  .pred-outright-pts { flex-shrink: 0; }
   .pred-outright-label { font-size: 0.62rem; color: #555; font-family: 'Barlow', sans-serif; text-transform: uppercase; letter-spacing: 0.5px; display: block; margin-bottom: 3px; }
   .pred-outright-val { font-size: 0.78rem; color: #ccc; font-weight: 600; font-family: 'Barlow', sans-serif; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pred-match-cards { display: none; flex-direction: column; gap: 10px; }
+  .pred-match-card { background: #111; border: 1px solid #1e1e1e; padding: 12px; }
+  .pred-match-card.earned { border-color: rgba(76,175,80,0.35); box-shadow: inset 3px 0 0 #4CAF50; background: rgba(76,175,80,0.05); }
+  .pred-match-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+  .pred-match-main { flex: 1; min-width: 0; }
+  .pred-match-fixture { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: nowrap; }
+  .pred-match-team { display: inline-flex; align-items: center; gap: 5px; font-size: 0.74rem; color: #ccc; font-family: 'Barlow', sans-serif; font-weight: 700; min-width: 0; flex: 1 1 0; }
+  .pred-match-team--home { justify-content: flex-end; text-align: right; }
+  .pred-match-team--away { justify-content: flex-start; text-align: left; }
+  .pred-match-team-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pred-match-score { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.25rem; color: ${COLORS.gold}; white-space: nowrap; flex-shrink: 0; letter-spacing: 1px; line-height: 1; padding: 0 2px; }
+  .pred-match-scorer-line { margin-top: 8px; font-size: 0.72rem; color: #777; font-family: 'Noto Sans', sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pred-match-scorer-line strong { color: #999; font-weight: 600; font-family: 'Barlow', sans-serif; font-size: 0.62rem; letter-spacing: 0.5px; text-transform: uppercase; margin-right: 6px; }
   .lb-locked-notice { display: flex; align-items: center; gap: 10px; background: rgba(201,168,76,0.04); border: 1px solid rgba(201,168,76,0.15); padding: 16px; margin-bottom: 16px; }
   .lb-locked-notice-icon { font-size: 1.4rem; flex-shrink: 0; }
   .lb-locked-notice-text { font-size: 0.82rem; color: #888; font-family: 'Noto Sans', sans-serif; line-height: 1.5; }
 
-  .card { background: #0d0d0d; border: 1px solid #1e1e1e; overflow: hidden; margin-bottom: 12px; transition: border-color 0.2s; }
+  .card { background: #0d0d0d; border: 1px solid #1e1e1e; overflow: hidden; margin-bottom: 12px; transition: border-color 0.2s; min-width: 0; }
   .card:hover { border-color: #2a2a2a; }
   .matches-grid { display: grid; gap: 12px; }
 
@@ -538,7 +575,9 @@ const css = `
   .paid-banner { background: rgba(76,175,80,0.07); border: 1px solid rgba(76,175,80,0.28); padding: 10px 16px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: #81c784; font-family: 'Barlow', sans-serif; font-weight: 700; }
   .unsaved-banner { background: rgba(255,152,0,0.08); border: 1px solid rgba(255,152,0,0.32); padding: 10px 16px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; font-size: 0.82rem; color: #ffb74d; font-family: 'Barlow', sans-serif; font-weight: 700; }
 
-  .deadline-banner { background: rgba(30,40,60,0.35); border-bottom: 1px solid rgba(201,168,76,0.2); padding: 10px 1.5rem; font-family: 'Barlow', sans-serif; font-size: 0.78rem; font-weight: 600; color: #b8c4d9; text-align: center; letter-spacing: 0.3px; }
+  .deadline-banner { background: rgba(30,40,60,0.35); border-bottom: 1px solid rgba(201,168,76,0.2); padding: 10px clamp(0.75rem, 3vw, 1.5rem); font-family: 'Barlow', sans-serif; font-size: 0.78rem; font-weight: 600; color: #b8c4d9; text-align: center; letter-spacing: 0.3px; line-height: 1.55; }
+  .save-section { padding: 0 clamp(0.75rem, 2.5vw, 1.5rem); margin-top: 8px; }
+  .card-header-badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
   .deadline-banner strong { color: ${COLORS.gold}; font-weight: 800; }
   .deadline-banner.closed { background: rgba(80,40,40,0.2); border-bottom-color: rgba(200,80,80,0.25); color: #c9a0a0; }
   .deadline-banner.closed strong { color: #e57373; }
@@ -702,11 +741,22 @@ const css = `
     }
   }
 
+  /* Leaderboard predictions: dedicated mobile cards */
+  @media (max-width: 520px) {
+    .pred-table--wide { display: none; }
+    .pred-match-cards { display: flex; }
+    .pred-pts-pill { font-size: 0.88rem; }
+    .pred-outrights { grid-template-columns: 1fr; }
+    .lb-pred-panel { overflow-x: visible; }
+  }
+
   /* --- Responsive: tablet --- */
   @media (max-width: 768px) {
     .app { width: 100%; }
     .hero-inner { padding: 1.5rem 1rem 1.2rem; }
     .section { padding: 1.2rem; }
+    .lb-row { align-items: flex-start; }
+    .lb-breakdown { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
     .outright-grid { gap: 8px; }
     .standings-grid { gap: 6px; }
     .lp-steps { grid-template-columns: repeat(2, 1fr); gap: 12px; }
@@ -777,7 +827,7 @@ const css = `
     .match-row { padding: 12px 10px; }
     .score-inline-name { font-size: 0.65rem; }
     .score-team-inline { max-width: none; }
-    .score-input { width: 48px; height: 48px; font-size: 1.4rem; }
+    .score-input { width: 48px; height: 48px; font-size: 1rem; }
     .scorer-row { flex-direction: column; align-items: stretch; gap: 6px; }
     .scorer-label { text-align: left; }
     .styled-select { width: 100%; flex: none; }
@@ -802,18 +852,22 @@ const css = `
     .analytics-row { grid-template-columns: minmax(78px, 1fr) minmax(60px, 1.3fr) 36px; }
     .analytics-metric-value { font-size: 1.7rem; }
 
-    .lb-row { gap: 8px; padding: 12px 0; }
-    .lb-rank { font-size: 1rem; width: 28px; }
-    .lb-avatar { width: 34px; height: 34px; font-size: 0.65rem; }
+    .lb-row { gap: 8px; padding: 12px 0; align-items: flex-start; }
+    .lb-rank { font-size: 1rem; width: 28px; flex-shrink: 0; }
     .lb-pts { font-size: 1.1rem; }
     .lb-name { font-size: 0.82rem; }
-    .lb-breakdown { gap: 4px; }
+    .lb-breakdown { gap: 4px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .lb-cat { font-size: 0.58rem; padding: 1px 4px; }
+    .deadline-banner { font-size: 0.72rem; padding: 10px 0.75rem; }
+    .match-pts-pill { font-size: 0.82rem; padding: 3px 8px; }
+    .match-pts-total-big { font-size: 1.4rem; }
+    .locked-banner, .paid-banner, .unsaved-banner { flex-wrap: wrap; line-height: 1.45; }
     .lb-you { margin: 0 -10px; padding-left: 10px; padding-right: 10px; }
 
     /* Prevent iOS auto-zoom: font-size must be ≥ 16px on focusable inputs */
     .form-input { font-size: 1rem; }
     .styled-select { font-size: 1rem; }
+    .num-input { font-size: 1rem; }
 
     .signup-card { padding: 1.2rem; width: 100%; }
     .submit-card { padding: 1.2rem; width: 100%; }
@@ -852,7 +906,6 @@ const css = `
     .nav-btn { padding: 12px 10px; font-size: 0.72rem; }
     .lb-breakdown { gap: 3px; }
     .lb-cat { font-size: 0.55rem; }
-    .lb-avatar { width: 30px; height: 30px; }
     .signup-card { padding: 1rem; }
     .signup-card h2 { font-size: 1.6rem; }
     .submit-card { padding: 1rem; }
@@ -868,6 +921,9 @@ const css = `
     .form-input { font-size: 1rem; padding: 10px 12px; }
     .lp-steps { grid-template-columns: 1fr; }
     .lb-pred-panel { margin: 0 -8px; padding: 10px 8px; }
+    .pred-match-fixture { flex-wrap: wrap; row-gap: 4px; }
+    .pred-match-team { flex: 1 1 100%; justify-content: center !important; text-align: center !important; }
+    .pred-match-score { order: -1; width: 100%; text-align: center; font-size: 1.35rem; padding-bottom: 2px; }
   }
 `;
 
@@ -1625,7 +1681,7 @@ function MatchesScreen({ preds, setPreds, results, readOnly, activeGroup, setAct
             <div key={key} className="card">
               <div className="card-header">
                 <span className="group-badge">Group {m.group}</span>
-                <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                <div className="card-header-badges">
                   {result?.isLive && <span className="live-badge">● LIVE {result.minute}'</span>}
                   {result?.isFinished && <span className="ft-badge">{result.status}</span>}
                   {hasMatchScorePrediction(p) && (
@@ -1674,6 +1730,14 @@ function MatchesScreen({ preds, setPreds, results, readOnly, activeGroup, setAct
                         <span className="actual-score-divider">—</span>
                         <span className="actual-score-val">{result.awayGoals}</span>
                       </div>
+                      {result.scorers?.length > 0 && (
+                        <div className="actual-scorers">
+                          <span className="actual-scorers-label">Scorers</span>
+                          <span className="actual-scorers-list">
+                            {result.scorers.map(formatActualScorer).join(" · ")}
+                          </span>
+                        </div>
+                      )}
                       <span className="match-pts-total-big">+{matchPts.points}</span>
                       {matchPts.breakdown.length > 0 && (
                         <div className="match-pts-earned" style={{ marginTop: 8 }}>
@@ -1913,11 +1977,32 @@ function RulesScreen() {
   );
 }
 
-function UserPredictionsPanel({ predictions }) {
+const OUTRIGHT_PTS_LABELS = {
+  winner: "Tournament winner",
+  runner_up: "Tournament runner-up",
+  third: "3rd place",
+  golden_boot: "Golden Boot",
+  golden_glove: "Golden Glove",
+  best_young: "Best Young Player",
+  top_scoring_team: "Highest scoring team",
+  england_progress: "England progress",
+};
+
+function UserPredictionsPanel({ predictions, results }) {
   const [activeGroup, setActiveGroup] = useState("A");
   const groups = Object.keys(TEAMS);
   const groupMatches = GROUP_MATCHES.filter(m => m.group === activeGroup);
   const preds = predictions || {};
+
+  const outrightPtsByKey = {};
+  if (results) {
+    for (const b of scoreOutrights(preds, results).breakdown) {
+      const key = Object.entries(OUTRIGHT_PTS_LABELS).find(([, label]) => label === b.label)?.[0];
+      if (key) outrightPtsByKey[key] = b.pts;
+    }
+    const statsPts = scoreStats(preds, results).breakdown.reduce((sum, b) => sum + b.pts, 0);
+    if (statsPts > 0) outrightPtsByKey.total_goals = statsPts;
+  }
 
   const outrightSummary = [
     { key: "winner", icon: "🏆", label: "Winner" },
@@ -1936,6 +2021,27 @@ function UserPredictionsPanel({ predictions }) {
     return typeof v === "string" && v.includes("|") ? v.split("|")[1] : String(v);
   };
 
+  const matchRows = groupMatches.map((m) => {
+          const key = `${m.home}-${m.away}`;
+          const p = preds[key] || {};
+          const hasScore = hasMatchScorePrediction(p);
+          const scorer = p.scorer ? formatVal(p.scorer) : null;
+          const homeScore = getPredictedScoreValue(p, "home");
+          const awayScore = getPredictedScoreValue(p, "away");
+          const result = getMatchResultForTeams(results?.matches, m.home, m.away);
+          const hasActualScore = result && result.homeGoals != null && result.awayGoals != null;
+          const canScore = result && (result.isFinished || result.isLive) && hasActualScore;
+          const matchPts = canScore ? scoreMatch(p, result) : null;
+          const ptsTitle = matchPts?.breakdown?.length
+            ? matchPts.breakdown.map((b) => `${b.label} +${b.pts}`).join(", ")
+            : undefined;
+          const earned = canScore && matchPts.points > 0;
+          const scoreLabel = hasScore
+            ? `${displayPredictedScore(homeScore)}–${displayPredictedScore(awayScore)}`
+            : "–";
+    return { key, m, scorer, earned, canScore, matchPts, ptsTitle, scoreLabel };
+  });
+
   return (
     <div className="lb-pred-panel">
       <div className="group-tabs">
@@ -1945,42 +2051,94 @@ function UserPredictionsPanel({ predictions }) {
           </button>
         ))}
       </div>
-      <table className="pred-table">
+      <table className="pred-table pred-table--wide">
+        <thead>
+          <tr>
+            <th style={{ textAlign: "right" }}>Home</th>
+            <th style={{ textAlign: "center" }}>Score</th>
+            <th>Away</th>
+            <th>Scorer</th>
+            <th className="pred-th-pts">Pts</th>
+          </tr>
+        </thead>
         <tbody>
-          {groupMatches.map(m => {
-            const key = `${m.home}-${m.away}`;
-            const p = preds[key] || {};
-            const hasScore = hasMatchScorePrediction(p);
-            const scorer = p.scorer ? formatVal(p.scorer) : null;
-            const homeScore = getPredictedScoreValue(p, "home");
-            const awayScore = getPredictedScoreValue(p, "away");
-            return (
-              <tr key={key}>
-                <td className="pred-team pred-team--home">
-                  <TeamFlag team={m.home} size={14} />
-                  <span>{m.home}</span>
-                </td>
-                <td className="pred-score">
-                  {hasScore ? `${displayPredictedScore(homeScore)}–${displayPredictedScore(awayScore)}` : "–"}
-                </td>
-                <td className="pred-team pred-team--away">
-                  <TeamFlag team={m.away} size={14} />
-                  <span>{m.away}</span>
-                </td>
-                <td className="pred-scorer">{scorer || ""}</td>
-              </tr>
-            );
-          })}
+          {matchRows.map(({ key, m, scorer, earned, canScore, matchPts, ptsTitle, scoreLabel }) => (
+            <tr key={key} className={earned ? "pred-row-earned" : ""}>
+              <td className="pred-team pred-team--home">
+                <TeamFlag team={m.home} size={14} />
+                <span>{m.home}</span>
+              </td>
+              <td className="pred-score">{scoreLabel}</td>
+              <td className="pred-team pred-team--away">
+                <TeamFlag team={m.away} size={14} />
+                <span>{m.away}</span>
+              </td>
+              <td className="pred-scorer">{scorer || "—"}</td>
+              <td className="pred-pts-cell">
+                <span
+                  className={`pred-pts-pill${earned ? " earned" : canScore ? "" : " pending"}`}
+                  title={ptsTitle}
+                >
+                  {canScore ? `+${matchPts.points} pts` : "Pending"}
+                </span>
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
+      <div className="pred-match-cards">
+        {matchRows.map(({ key, m, scorer, earned, canScore, matchPts, ptsTitle, scoreLabel }) => (
+          <div key={key} className={`pred-match-card${earned ? " earned" : ""}`}>
+            <div className="pred-match-card-top">
+              <div className="pred-match-main">
+                <div className="pred-match-fixture">
+                  <span className="pred-match-team pred-match-team--home">
+                    <TeamFlag team={m.home} size={16} />
+                    <span className="pred-match-team-name">{m.home}</span>
+                  </span>
+                  <span className="pred-match-score">{scoreLabel}</span>
+                  <span className="pred-match-team pred-match-team--away">
+                    <TeamFlag team={m.away} size={16} />
+                    <span className="pred-match-team-name">{m.away}</span>
+                  </span>
+                </div>
+                {scorer && (
+                  <div className="pred-match-scorer-line">
+                    <strong>Scorer</strong>
+                    {scorer}
+                  </div>
+                )}
+              </div>
+              <span
+                className={`pred-pts-pill${earned ? " earned" : canScore ? "" : " pending"}`}
+                title={ptsTitle}
+              >
+                {canScore ? `+${matchPts.points} pts` : "Pending"}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="pred-outrights-label">Outrights</div>
       <div className="pred-outrights">
         {outrightSummary.map(({ key, icon, label }) => {
           const display = formatVal(preds[key]);
           if (!display) return null;
+          const pts = outrightPtsByKey[key];
+          const earned = Boolean(pts);
           return (
-            <div key={key} className="pred-outright-item">
-              <span className="pred-outright-label">{icon} {label}</span>
-              <span className="pred-outright-val">{display}</span>
+            <div key={key} className={`pred-outright-item${earned ? " earned" : ""}`}>
+              <div style={{ minWidth: 0 }}>
+                <span className="pred-outright-label">{icon} {label}</span>
+                <span className="pred-outright-val">{display}</span>
+              </div>
+              {results && (
+                <span className="pred-outright-pts">
+                  <span className={`pred-pts-pill${earned ? " earned" : ""}`}>
+                    +{pts || 0} pts
+                  </span>
+                </span>
+              )}
             </div>
           );
         })}
@@ -2009,7 +2167,6 @@ function LeaderboardScreen({ results, allUsers, currentUserId, submissionClosed,
       return {
         id: u.id,
         name: displayName,
-        avatar: displayName.slice(0, 2).toUpperCase(),
         ...s,
         totalGoalsPred,
       };
@@ -2095,8 +2252,7 @@ function LeaderboardScreen({ results, allUsers, currentUserId, submissionClosed,
                     <span className={`lb-rank${i === 0 ? " top1" : i === 1 ? " top2" : i === 2 ? " top3" : ""}`}>
                       {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `#${i + 1}`}
                     </span>
-                    <div className="lb-avatar">{p.avatar}</div>
-                    <div style={{ flex: 1 }}>
+                    <div className="lb-row-main">
                       <div className="lb-name">{p.name}</div>
                       <div className="lb-breakdown" aria-label={`Score breakdown for ${p.name}`}>
                         <span className="lb-cat">Matches: <span>{p.matchPoints}</span></span>
@@ -2109,7 +2265,7 @@ function LeaderboardScreen({ results, allUsers, currentUserId, submissionClosed,
                     {canExpand && <span className={`lb-chevron${isExpanded ? " open" : ""}`}>▼</span>}
                   </button>
                   {canExpand && isExpanded && (
-                    <UserPredictionsPanel predictions={user.predictions} />
+                    <UserPredictionsPanel predictions={user.predictions} results={results} />
                   )}
                 </div>
               );
@@ -3280,7 +3436,7 @@ export default function App() {
         {screen === "rules" && <RulesScreen />}
 
         {screen !== "signup" && screen !== "leaderboard" && screen !== "analytics" && screen !== "rules" && screen !== "submit" && !predictionsReadOnly && (
-          <div style={{ padding: "0 1.5rem", marginTop: "8px" }}>
+          <div className="save-section">
             {currentSectionHasUnsavedChanges && (
               <div className="unsaved-banner" role="status">
                 Unsaved changes in {SECTION_LABELS[screen] || "this section"} - click Save Predictions before leaving.

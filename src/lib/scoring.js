@@ -40,6 +40,23 @@ function getPredictionGoal(prediction, legacyKey, normalizedKey) {
   return 0;
 }
 
+function scorerMatchesPrediction(actualScorer, predictionScorer) {
+  if (!actualScorer || !predictionScorer) return false;
+  const actual = String(actualScorer);
+  const prediction = String(predictionScorer);
+  if (actual === prediction) return true;
+
+  if (actual.includes("|") && prediction.includes("|")) {
+    const [actualTeam, actualPlayer] = actual.split("|");
+    const [predictedTeam] = prediction.split("|");
+    if (actualTeam !== predictedTeam) return false;
+    return matchPlayerName(actualPlayer, prediction);
+  }
+
+  const actualPlayer = actual.includes("|") ? actual.split("|").slice(1).join("|") : actual;
+  return matchPlayerName(actualPlayer, prediction);
+}
+
 /**
  * Score a single match prediction against an actual result.
  */
@@ -80,9 +97,7 @@ export function scoreMatch(prediction, result) {
 
   // Anytime scorer
   if (prediction.scorer && result.scorers?.length) {
-    const matched = result.scorers.some((s) =>
-      matchPlayerName(s.split("|")[1], prediction.scorer),
-    );
+    const matched = result.scorers.some((s) => scorerMatchesPrediction(s, prediction.scorer));
     if (matched) {
       points += PTS.ANYTIME_SCORER;
       breakdown.push({ label: "Anytime scorer", pts: PTS.ANYTIME_SCORER });
