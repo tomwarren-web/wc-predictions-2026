@@ -36,6 +36,7 @@ const TEAM_ALIAS: Record<string, string> = {
   Czechia: "Czech Republic",
   "Cape Verde Islands": "Cape Verde",
   "Bosnia and Herzegovina": "Bosnia-Herzegovina",
+  "Bosnia-H.": "Bosnia-Herzegovina",
   "Congo DR": "DR Congo",
   "DR Congo": "DR Congo",
   "United States": "USA",
@@ -247,7 +248,7 @@ function parseFootballDataStandings(standingsData: any) {
   for (const standing of standingsData?.standings || []) {
     const groupName = String(standing.group || "").replace("GROUP_", "").replace("Group ", "").trim();
     if (!groupName || !Array.isArray(standing.table)) continue;
-    groupStandings[groupName] = standing.table.map((row: any) => normalizeTeamName(row.team?.shortName || row.team?.name));
+    groupStandings[groupName] = standing.table.map((row: any) => normalizeTeamName(row.team?.name || row.team?.shortName));
   }
   return groupStandings;
 }
@@ -541,8 +542,8 @@ async function fetchFootballDataResults(supabase: any, cached: any) {
   const detailFetchIds: number[] = [];
 
   for (const match of matchesData?.matches || []) {
-    const homeTeam = normalizeTeamName(match.homeTeam?.shortName || match.homeTeam?.name);
-    const awayTeam = normalizeTeamName(match.awayTeam?.shortName || match.awayTeam?.name);
+    const homeTeam = normalizeTeamName(match.homeTeam?.name || match.homeTeam?.shortName);
+    const awayTeam = normalizeTeamName(match.awayTeam?.name || match.awayTeam?.shortName);
     if (!homeTeam || !awayTeam) continue;
 
     const { status, isLive, isFinished } = footballDataStatus(match);
