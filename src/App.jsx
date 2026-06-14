@@ -493,6 +493,8 @@ const css = `
   .pred-team span { vertical-align: middle; margin: 0 4px; }
   .pred-score { text-align: center; font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1rem; color: ${COLORS.gold}; width: 56px; letter-spacing: 1px; }
   .pred-scorer { color: #555; font-size: 0.65rem; padding-left: 8px; max-width: 100px; overflow: hidden; text-overflow: ellipsis; }
+  .pred-scorer.correct { color: #8fd694; font-weight: 600; max-width: 120px; }
+  .pred-scorer-check { color: #4CAF50; margin-right: 4px; font-weight: 900; }
   .pred-table thead th { padding: 0 6px 8px; font-family: 'Barlow Condensed', sans-serif; font-size: 0.62rem; font-weight: 800; letter-spacing: 1.5px; text-transform: uppercase; color: #666; border-bottom: 1px solid #222; }
   .pred-table thead th.pred-th-pts { text-align: right; color: ${COLORS.gold}; }
   .pred-table tr.pred-row-earned td { background: rgba(76,175,80,0.06); }
@@ -520,6 +522,9 @@ const css = `
   .pred-match-team-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pred-match-score { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 1.25rem; color: ${COLORS.gold}; white-space: nowrap; flex-shrink: 0; letter-spacing: 1px; line-height: 1; padding: 0 2px; }
   .pred-match-scorer-line { margin-top: 8px; font-size: 0.72rem; color: #777; font-family: 'Noto Sans', sans-serif; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pred-match-scorer-line.correct { color: #8fd694; }
+  .pred-match-scorer-line.correct strong { color: #4CAF50; }
+  .pred-scorer-badge { display: inline-block; margin-left: 8px; font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 0.68rem; padding: 2px 6px; border-radius: 2px; background: rgba(76,175,80,0.22); border: 1px solid #4CAF50; color: #fff; letter-spacing: 0.3px; vertical-align: middle; }
   .pred-match-scorer-line strong { color: #999; font-weight: 600; font-family: 'Barlow', sans-serif; font-size: 0.62rem; letter-spacing: 0.5px; text-transform: uppercase; margin-right: 6px; }
   .lb-locked-notice { display: flex; align-items: center; gap: 10px; background: rgba(201,168,76,0.04); border: 1px solid rgba(201,168,76,0.15); padding: 16px; margin-bottom: 16px; }
   .lb-locked-notice-icon { font-size: 1.4rem; flex-shrink: 0; }
@@ -2036,10 +2041,13 @@ function UserPredictionsPanel({ predictions, results }) {
             ? matchPts.breakdown.map((b) => `${b.label} +${b.pts}`).join(", ")
             : undefined;
           const earned = canScore && matchPts.points > 0;
+          const scorerCorrect = Boolean(
+            canScore && matchPts?.breakdown?.some((b) => b.label === "Anytime scorer"),
+          );
           const scoreLabel = hasScore
             ? `${displayPredictedScore(homeScore)}–${displayPredictedScore(awayScore)}`
             : "–";
-    return { key, m, scorer, earned, canScore, matchPts, ptsTitle, scoreLabel };
+    return { key, m, scorer, earned, canScore, matchPts, ptsTitle, scoreLabel, scorerCorrect };
   });
 
   return (
@@ -2062,7 +2070,7 @@ function UserPredictionsPanel({ predictions, results }) {
           </tr>
         </thead>
         <tbody>
-          {matchRows.map(({ key, m, scorer, earned, canScore, matchPts, ptsTitle, scoreLabel }) => (
+          {matchRows.map(({ key, m, scorer, earned, canScore, matchPts, ptsTitle, scoreLabel, scorerCorrect }) => (
             <tr key={key} className={earned ? "pred-row-earned" : ""}>
               <td className="pred-team pred-team--home">
                 <TeamFlag team={m.home} size={14} />
@@ -2073,7 +2081,10 @@ function UserPredictionsPanel({ predictions, results }) {
                 <TeamFlag team={m.away} size={14} />
                 <span>{m.away}</span>
               </td>
-              <td className="pred-scorer">{scorer || "—"}</td>
+              <td className={`pred-scorer${scorerCorrect ? " correct" : ""}`} title={scorerCorrect ? "Correct anytime goalscorer (+3 pts)" : undefined}>
+                {scorerCorrect && <span className="pred-scorer-check" aria-hidden="true">✓</span>}
+                {scorer || "—"}
+              </td>
               <td className="pred-pts-cell">
                 <span
                   className={`pred-pts-pill${earned ? " earned" : canScore ? "" : " pending"}`}
@@ -2087,7 +2098,7 @@ function UserPredictionsPanel({ predictions, results }) {
         </tbody>
       </table>
       <div className="pred-match-cards">
-        {matchRows.map(({ key, m, scorer, earned, canScore, matchPts, ptsTitle, scoreLabel }) => (
+        {matchRows.map(({ key, m, scorer, earned, canScore, matchPts, ptsTitle, scoreLabel, scorerCorrect }) => (
           <div key={key} className={`pred-match-card${earned ? " earned" : ""}`}>
             <div className="pred-match-card-top">
               <div className="pred-match-main">
@@ -2103,9 +2114,11 @@ function UserPredictionsPanel({ predictions, results }) {
                   </span>
                 </div>
                 {scorer && (
-                  <div className="pred-match-scorer-line">
+                  <div className={`pred-match-scorer-line${scorerCorrect ? " correct" : ""}`}>
                     <strong>Scorer</strong>
+                    {scorerCorrect && <span className="pred-scorer-check" aria-hidden="true">✓</span>}
                     {scorer}
+                    {scorerCorrect && <span className="pred-scorer-badge">+3</span>}
                   </div>
                 )}
               </div>
