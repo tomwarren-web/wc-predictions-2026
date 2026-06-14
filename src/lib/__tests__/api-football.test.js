@@ -72,6 +72,42 @@ describe("getMatchResultForTeams", () => {
     const r = getMatchResultForTeams({}, "England", "Brazil");
     expect(r).toBeNull();
   });
+
+  it("finds a match when the API uses truncated Bosnia team names", () => {
+    const map = {
+      "Canada-Bosnia-H.": {
+        homeTeam: "Canada",
+        awayTeam: "Bosnia-H.",
+        homeGoals: 1,
+        awayGoals: 1,
+        isFinished: true,
+        date: "2026-06-12T19:00:00Z",
+        scorers: ["Bosnia-Herzegovina|Jovo Lukic", "Canada|Cyle Larin"],
+      },
+    };
+    const r = getMatchResultForTeams(map, "Canada", "Bosnia-Herzegovina");
+    expect(r).not.toBeNull();
+    expect(r.homeGoals).toBe(1);
+    expect(r.awayGoals).toBe(1);
+    expect(r.awayTeam).toBe("Bosnia-Herzegovina");
+  });
+
+  it("derives goals from scorers when the feed omits score values", () => {
+    const map = {
+      "Canada-Bosnia-Herzegovina": {
+        homeTeam: "Canada",
+        awayTeam: "Bosnia-Herzegovina",
+        homeGoals: null,
+        awayGoals: null,
+        isFinished: true,
+        date: "2026-06-12T19:00:00Z",
+        scorers: ["Bosnia-Herzegovina|Jovo Lukic", "Canada|Cyle Larin"],
+      },
+    };
+    const r = getMatchResultForTeams(map, "Canada", "Bosnia-Herzegovina");
+    expect(r.homeGoals).toBe(1);
+    expect(r.awayGoals).toBe(1);
+  });
 });
 
 // ─── matchPlayerName ─────────────────────────────────────────────────────────

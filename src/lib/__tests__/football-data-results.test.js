@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { parseFootballDataScorers } from "../../../supabase/functions/football-results/football-data.ts";
+import {
+  deriveGoalsFromScorers,
+  parseFootballDataScorers,
+} from "../../../supabase/functions/football-results/football-data.ts";
 
 describe("parseFootballDataScorers", () => {
   it("maps unfolded football-data.org goals to Team|Player scorer strings", () => {
@@ -65,5 +68,21 @@ describe("parseFootballDataScorers", () => {
     );
 
     expect(scorers).toEqual(["USA|Christian Pulisic"]);
+  });
+});
+
+describe("deriveGoalsFromScorers", () => {
+  it("counts goals per team from Team|Player scorer strings", () => {
+    const goals = deriveGoalsFromScorers(
+      ["Canada|Cyle Larin", "Bosnia-Herzegovina|Jovo Lukic"],
+      "Canada",
+      "Bosnia-Herzegovina",
+    );
+    expect(goals).toEqual({
+      homeGoals: 1,
+      awayGoals: 1,
+      homePenaltyGoals: null,
+      awayPenaltyGoals: null,
+    });
   });
 });

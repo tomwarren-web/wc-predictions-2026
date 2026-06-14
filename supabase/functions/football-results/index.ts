@@ -1,6 +1,10 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { parseFootballDataScorers } from "./football-data.ts";
+import {
+  deriveGoalsFromEvents,
+  deriveGoalsFromScorers,
+  parseFootballDataScorers,
+} from "./football-data.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const API_KEY = Deno.env.get("API_FOOTBALL_KEY") || Deno.env.get("VITE_API_FOOTBALL_KEY");
@@ -236,6 +240,40 @@ function footballDataGoals(match: any) {
     awayGoals: fullTime.away ?? regularTime.away ?? score.away ?? null,
     homePenaltyGoals: score.penalties?.home ?? null,
     awayPenaltyGoals: score.penalties?.away ?? null,
+  };
+}
+
+function resolveFootballDataGoals(
+  match: any,
+  homeTeam: string,
+  awayTeam: string,
+  cachedMatch: any,
+  scorers: string[],
+) {
+  const parsed = footballDataGoals(match);
+  const fromEvents = deriveGoalsFromEvents(match, homeTeam, awayTeam, normalizeTeamName);
+  const fromScorers =
+    parsed.homeGoals == null && parsed.awayGoals == null && scorers.length
+      ? deriveGoalsFromScorers(scorers, homeTeam, awayTeam)
+      : null;
+
+  return {
+    homeGoals:
+      parsed.homeGoals ??
+      fromEvents?.homeGoals ??
+      cachedMatch?.homeGoals ??
+      fromScorers?.homeGoals ??
+      null,
+    awayGoals:
+      parsed.awayGoals ??
+      fromEvents?.awayGoals ??
+      cachedMatch?.awayGoals ??
+      fromScorers?.awayGoals ??
+      null,
+    homePenaltyGoals:
+      parsed.homePenaltyGoals ?? cachedMatch?.homePenaltyGoals ?? null,
+    awayPenaltyGoals:
+      parsed.awayPenaltyGoals ?? cachedMatch?.awayPenaltyGoals ?? null,
   };
 }
 
@@ -547,11 +585,11 @@ async function fetchFootballDataResults(supabase: any, cached: any) {
     if (!homeTeam || !awayTeam) continue;
 
     const { status, isLive, isFinished } = footballDataStatus(match);
-    const goals = footballDataGoals(match);
     const cachedMatch = cachedMatchesByFixtureId.get(match.id);
     const cachedScorers = Array.isArray(cachedMatch?.scorers) ? cachedMatch.scorers : [];
     const scorers = parseFootballDataScorers(match, normalizeTeamName);
     const resolvedScorers = scorers.length ? scorers : cachedScorers;
+    const goals = resolveFootballDataGoals(match, homeTeam, awayTeam, cachedMatch, resolvedScorers);
     if (isLive) hasLive = true;
 
     const matchEntry = {

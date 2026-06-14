@@ -15,7 +15,10 @@ const TEAM_ALIAS = {
   "Cote d'Ivoire": "Ivory Coast",
   "Côte d'Ivoire": "Ivory Coast",
   Curacao: "Curaçao",
+  Czechia: "Czech Republic",
   "Cape Verde Islands": "Cape Verde",
+  "Bosnia and Herzegovina": "Bosnia-Herzegovina",
+  "Bosnia-H.": "Bosnia-Herzegovina",
   "United States": "USA",
   "Saudi-Arabia": "Saudi Arabia",
 };
@@ -23,6 +26,47 @@ const TEAM_ALIAS = {
 function normalizeTeamName(apiName) {
   if (!apiName) return apiName;
   return TEAM_ALIAS[apiName] || apiName;
+}
+
+function alignResultToFixture(result, home, away) {
+  if (!result) return null;
+  const h = normalizeTeamName(home);
+  const a = normalizeTeamName(away);
+  const rh = normalizeTeamName(result.homeTeam);
+  const ra = normalizeTeamName(result.awayTeam);
+  if (rh === h && ra === a) {
+    return enrichMatchGoals({ ...result, homeTeam: h, awayTeam: a });
+  }
+  if (rh === a && ra === h) {
+    return enrichMatchGoals({
+      ...result,
+      homeTeam: h,
+      awayTeam: a,
+      homeGoals: result.awayGoals,
+      awayGoals: result.homeGoals,
+      homePenaltyGoals: result.awayPenaltyGoals,
+      awayPenaltyGoals: result.homePenaltyGoals,
+    });
+  }
+  return null;
+}
+
+function enrichMatchGoals(result) {
+  if (!result || (result.homeGoals != null && result.awayGoals != null)) return result;
+  if (!result.scorers?.length) return result;
+  let homeGoals = 0;
+  let awayGoals = 0;
+  for (const scorer of result.scorers) {
+    const team = scorer.split("|")[0];
+    if (team === result.homeTeam) homeGoals += 1;
+    else if (team === result.awayTeam) awayGoals += 1;
+  }
+  if (homeGoals === 0 && awayGoals === 0) return result;
+  return {
+    ...result,
+    homeGoals: result.homeGoals ?? homeGoals,
+    awayGoals: result.awayGoals ?? awayGoals,
+  };
 }
 
 function stripAccents(str) {
@@ -39,20 +83,20 @@ function normalizePlayerName(name) {
  */
 export function getMatchResultForTeams(matchesMap, home, away) {
   if (!matchesMap) return null;
-  const forward = `${home}-${away}`;
-  const rev = `${away}-${home}`;
-  if (matchesMap[forward]) return matchesMap[forward];
-  const r = matchesMap[rev];
-  if (!r) return null;
-  return {
-    ...r,
-    homeTeam: home,
-    awayTeam: away,
-    homeGoals: r.awayGoals,
-    awayGoals: r.homeGoals,
-    homePenaltyGoals: r.awayPenaltyGoals,
-    awayPenaltyGoals: r.homePenaltyGoals,
-  };
+  const h = normalizeTeamName(home);
+  const a = normalizeTeamName(away);
+  const forward = `${h}-${a}`;
+  const rev = `${a}-${h}`;
+  if (matchesMap[forward]) return enrichMatchGoals(matchesMap[forward]);
+  if (matchesMap[rev]) {
+    const direct = alignResultToFixture(matchesMap[rev], h, a);
+    if (direct) return direct;
+  }
+  for (const entry of Object.values(matchesMap)) {
+    const aligned = alignResultToFixture(entry, h, a);
+    if (aligned) return aligned;
+  }
+  return null;
 }
 
 export function matchPlayerName(apiPlayer, predictionScorer) {
