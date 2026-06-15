@@ -57,6 +57,21 @@ function scorerMatchesPrediction(actualScorer, predictionScorer) {
   return matchPlayerName(actualPlayer, prediction);
 }
 
+function isWorldCupFinalRound(round) {
+  const value = String(round || "").toLowerCase();
+  const isThird = value.includes("3rd") || value.includes("third place") || value.includes("third_place");
+  return value.includes("final") && !value.includes("semi") && !value.includes("quarter") && !isThird;
+}
+
+/** Outrights and tournament stats only score after the World Cup Final has finished. */
+export function isTournamentComplete(results) {
+  if (!results) return false;
+  if (results.tournamentComplete === true) return true;
+  return Object.values(results.matches || {}).some(
+    (match) => match?.isFinished && isWorldCupFinalRound(match.round),
+  );
+}
+
 /**
  * Score a single match prediction against an actual result.
  */
@@ -132,7 +147,7 @@ export function scoreGroupStandings(predicted, actual) {
  * Score outright tournament predictions.
  */
 export function scoreOutrights(preds, results) {
-  if (!results) return { points: 0, breakdown: [] };
+  if (!results || !isTournamentComplete(results)) return { points: 0, breakdown: [] };
 
   let points = 0;
   const breakdown = [];
@@ -207,7 +222,7 @@ export function scoreOutrights(preds, results) {
  * Score numeric/stat-style predictions.
  */
 export function scoreStats(preds, results) {
-  if (!preds || !results) return { points: 0, breakdown: [] };
+  if (!preds || !results || !isTournamentComplete(results)) return { points: 0, breakdown: [] };
 
   let points = 0;
   const breakdown = [];

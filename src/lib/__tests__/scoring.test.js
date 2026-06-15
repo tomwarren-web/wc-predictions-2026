@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { scoreMatch, scoreGroupStandings, scoreOutrights, scoreStats, scorePredictions } from "../scoring.js";
+import { scoreMatch, scoreGroupStandings, scoreOutrights, scoreStats, scorePredictions, isTournamentComplete } from "../scoring.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -223,6 +223,7 @@ describe("scoreGroupStandings", () => {
 
 describe("scoreOutrights and scoreStats", () => {
   const baseResults = {
+    tournamentComplete: true,
     tournamentResults: { winner: "England", runnerUp: "Germany", third: "France" },
     topScorers: [
       { player: "Erling Haaland", goals: 7, team: "Norway", key: "Norway|Erling Haaland" },
@@ -237,6 +238,25 @@ describe("scoreOutrights and scoreStats", () => {
 
   it("returns 0 for null results", () => {
     expect(scoreOutrights({}, null).points).toBe(0);
+  });
+
+  it("returns 0 before the World Cup Final is finished", () => {
+    const midTournament = {
+      tournamentResults: { winner: null, runnerUp: null, third: null },
+      englandProgress: "Group stage",
+      stats: { totalGoals: 40, topScoringTeam: "Germany" },
+      topScorers: [{ player: "Erling Haaland", goals: 3, team: "Norway", key: "Norway|Erling Haaland" }],
+    };
+    const preds = {
+      winner: "England",
+      england_progress: "Group stage",
+      top_scoring_team: "Germany",
+      golden_boot: "Norway|Erling Haaland",
+      total_goals: 40,
+    };
+    expect(isTournamentComplete(midTournament)).toBe(false);
+    expect(scoreOutrights(preds, midTournament).points).toBe(0);
+    expect(scoreStats(preds, midTournament).points).toBe(0);
   });
 
   it("+10 for correct tournament winner", () => {
@@ -343,6 +363,7 @@ describe("scoreOutrights and scoreStats", () => {
 
 describe("scorePredictions", () => {
   const buildResults = () => ({
+    tournamentComplete: true,
     matches: {
       "Mexico-South Africa": {
         homeGoals: 2,

@@ -25,7 +25,7 @@ import {
 } from "./lib/supabase";
 import { isApiFootballConfigured, fetchAllResults, hasLiveMatches, getMatchResultForTeams } from "./lib/api-football";
 import { getSubmissionDeadlineMs, getFirstKickoffMs, formatCountdown, formatDeadlineLocal } from "./lib/tournament-deadline";
-import { scorePredictions, scoreMatch, scoreOutrights, scoreStats } from "./lib/scoring";
+import { scorePredictions, scoreMatch, scoreOutrights, scoreStats, isTournamentComplete } from "./lib/scoring";
 import { PLAYERS } from "./data/players";
 import heroImg from "./assets/hero.png";
 
@@ -1949,9 +1949,9 @@ function RulesScreen() {
     { icon: "🎯", title: "Exact score", pts: "+5 pts", desc: "Nail the exact scoreline" },
     { icon: "⚽", title: "Anytime scorer", pts: "+3 pts", desc: "Your picked player scores; own goals do not count" },
     { icon: "📋", title: "Group position", pts: "+3 pts", desc: "Each nation in the correct group place" },
-    { icon: "🏆", title: "Each outright", pts: "+10 pts", desc: "Winner, podium, awards, and top-scoring team" },
-    { icon: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", title: "England progress", pts: "+10 pts", desc: "How far England go — exact stage matched after the tournament" },
-    { icon: "⚽", title: "Total tournament goals", pts: "+10 pts", desc: "Within ±3 of the final total; closest prediction breaks ties" },
+    { icon: "🏆", title: "Each outright", pts: "+10 pts", desc: "Winner, podium, awards, and top-scoring team — scored after the final" },
+    { icon: "🏴󠁧󠁢󠁥󠁮󠁧󠁿", title: "England progress", pts: "+10 pts", desc: "How far England go — scored after the final" },
+    { icon: "⚽", title: "Total tournament goals", pts: "+10 pts", desc: "Scored after the final; within ±3 of the final total; closest prediction breaks ties" },
   ];
 
   return (
@@ -2000,7 +2000,8 @@ function UserPredictionsPanel({ predictions, results }) {
   const preds = predictions || {};
 
   const outrightPtsByKey = {};
-  if (results) {
+  const tournamentComplete = isTournamentComplete(results);
+  if (results && tournamentComplete) {
     for (const b of scoreOutrights(preds, results).breakdown) {
       const key = Object.entries(OUTRIGHT_PTS_LABELS).find(([, label]) => label === b.label)?.[0];
       if (key) outrightPtsByKey[key] = b.pts;
@@ -2138,7 +2139,7 @@ function UserPredictionsPanel({ predictions, results }) {
           const display = formatVal(preds[key]);
           if (!display) return null;
           const pts = outrightPtsByKey[key];
-          const earned = Boolean(pts);
+          const earned = tournamentComplete && Boolean(pts);
           return (
             <div key={key} className={`pred-outright-item${earned ? " earned" : ""}`}>
               <div style={{ minWidth: 0 }}>
@@ -2147,8 +2148,8 @@ function UserPredictionsPanel({ predictions, results }) {
               </div>
               {results && (
                 <span className="pred-outright-pts">
-                  <span className={`pred-pts-pill${earned ? " earned" : ""}`}>
-                    +{pts || 0} pts
+                  <span className={`pred-pts-pill${earned ? " earned" : " pending"}`}>
+                    {tournamentComplete ? `+${pts || 0} pts` : "Pending"}
                   </span>
                 </span>
               )}
