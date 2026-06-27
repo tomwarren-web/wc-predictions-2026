@@ -123,6 +123,30 @@ export function scoreMatch(prediction, result) {
 }
 
 /**
+ * A group's final standings are only settled once every group-stage fixture
+ * between its teams has finished. Until then live tables are provisional, so we
+ * must not score group-standings predictions against them.
+ *
+ * @param results  full results object ({ matches, ... })
+ * @param groupTeams  the teams in the group (e.g. results.standings[g])
+ */
+export function isGroupComplete(results, groupTeams) {
+  const teams = (groupTeams || []).filter(Boolean);
+  if (teams.length < 2) return false;
+  const teamSet = new Set(teams);
+  // A group of n teams plays every pairing once: n*(n-1)/2 fixtures.
+  const expected = (teams.length * (teams.length - 1)) / 2;
+
+  let finished = 0;
+  for (const match of Object.values(results?.matches || {})) {
+    if (!String(match?.round || "").toLowerCase().includes("group")) continue;
+    if (!teamSet.has(match.homeTeam) || !teamSet.has(match.awayTeam)) continue;
+    if (match.isFinished) finished += 1;
+  }
+  return finished >= expected;
+}
+
+/**
  * Score group standings predictions for one group.
  */
 export function scoreGroupStandings(predicted, actual) {
@@ -270,6 +294,8 @@ export function scorePredictions(preds, results) {
     const predicted = preds[`standings_${g}`];
     const actual = results.standings?.[g];
     if (!predicted || !actual) continue;
+    // Only score once every fixture in the group has been played; live tables are provisional.
+    if (!isGroupComplete(results, actual)) continue;
     const { points, breakdown } = scoreGroupStandings(predicted, actual);
     standingsPoints += points;
     standingsBreakdown = standingsBreakdown.concat(breakdown);

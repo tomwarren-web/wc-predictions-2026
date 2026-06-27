@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { scoreMatch, scoreGroupStandings, scoreOutrights, scoreStats, scorePredictions, isTournamentComplete } from "../scoring.js";
+import { scoreMatch, scoreGroupStandings, scoreOutrights, scoreStats, scorePredictions, isTournamentComplete, isGroupComplete } from "../scoring.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -219,6 +219,50 @@ describe("scoreGroupStandings", () => {
   });
 });
 
+// ─── isGroupComplete ─────────────────────────────────────────────────────────
+
+describe("isGroupComplete", () => {
+  const teams = ["England", "Croatia", "Ghana", "Panama"];
+
+  const buildGroup = (overrides = {}) => {
+    const matches = {};
+    for (let i = 0; i < teams.length; i += 1) {
+      for (let j = i + 1; j < teams.length; j += 1) {
+        const key = `${teams[i]}-${teams[j]}`;
+        matches[key] = {
+          homeTeam: teams[i],
+          awayTeam: teams[j],
+          round: "Group Stage - 1",
+          isFinished: true,
+          ...(overrides[key] || {}),
+        };
+      }
+    }
+    return { matches };
+  };
+
+  it("is true when all six group pairings are finished", () => {
+    expect(isGroupComplete(buildGroup(), teams)).toBe(true);
+  });
+
+  it("is false when any group fixture is unfinished", () => {
+    const results = buildGroup({ "Ghana-Panama": { isFinished: false } });
+    expect(isGroupComplete(results, teams)).toBe(false);
+  });
+
+  it("ignores non-group rounds and matches with outside teams", () => {
+    const results = buildGroup();
+    results.matches["England-Spain"] = { homeTeam: "England", awayTeam: "Spain", round: "Round of 16", isFinished: true };
+    expect(isGroupComplete(results, teams)).toBe(true);
+  });
+
+  it("is false for empty or trivial team lists", () => {
+    expect(isGroupComplete(buildGroup(), [])).toBe(false);
+    expect(isGroupComplete(buildGroup(), ["England"])).toBe(false);
+    expect(isGroupComplete({}, teams)).toBe(false);
+  });
+});
+
 // ─── scoreOutrights ──────────────────────────────────────────────────────────
 
 describe("scoreOutrights and scoreStats", () => {
@@ -362,10 +406,38 @@ describe("scoreOutrights and scoreStats", () => {
 // ─── scorePredictions ────────────────────────────────────────────────────────
 
 describe("scorePredictions", () => {
+  const GROUP_A = ["Mexico", "South Korea", "South Africa", "Czech Republic"];
+  const GROUP_L = ["England", "Croatia", "Ghana", "Panama"];
+
+  // Every group-stage pairing, finished 0-0 by default, so each group counts as complete.
+  const buildGroupMatches = (teams) => {
+    const matches = {};
+    for (let i = 0; i < teams.length; i += 1) {
+      for (let j = i + 1; j < teams.length; j += 1) {
+        matches[`${teams[i]}-${teams[j]}`] = {
+          homeTeam: teams[i],
+          awayTeam: teams[j],
+          round: "Group Stage - 1",
+          homeGoals: 0,
+          awayGoals: 0,
+          isFinished: true,
+          isLive: false,
+          scorers: [],
+        };
+      }
+    }
+    return matches;
+  };
+
   const buildResults = () => ({
     tournamentComplete: true,
     matches: {
+      ...buildGroupMatches(GROUP_A),
+      ...buildGroupMatches(GROUP_L),
       "Mexico-South Africa": {
+        homeTeam: "Mexico",
+        awayTeam: "South Africa",
+        round: "Group Stage - 1",
         homeGoals: 2,
         awayGoals: 0,
         isFinished: true,
@@ -373,6 +445,9 @@ describe("scorePredictions", () => {
         scorers: ["Mexico|Santiago Gimenez"],
       },
       "England-Croatia": {
+        homeTeam: "England",
+        awayTeam: "Croatia",
+        round: "Group Stage - 1",
         homeGoals: 2,
         awayGoals: 1,
         isFinished: true,
@@ -381,8 +456,8 @@ describe("scorePredictions", () => {
       },
     },
     standings: {
-      A: ["Mexico", "South Korea", "South Africa", "Czech Republic"],
-      L: ["England", "Croatia", "Ghana", "Panama"],
+      A: GROUP_A,
+      L: GROUP_L,
     },
     tournamentResults: { winner: "England", runnerUp: "Germany", third: "France" },
     topScorers: [{ player: "Erling Haaland", goals: 7, team: "Norway", key: "Norway|Erling Haaland" }],
@@ -421,6 +496,18 @@ describe("scorePredictions", () => {
     };
     const r = scorePredictions(preds, buildResults());
     expect(r.standingsPoints).toBe(24);
+  });
+
+  it("does not score a group's standings until all its fixtures are finished", () => {
+    const results = buildResults();
+    // Leave one Group A fixture unfinished — Group A must not score, Group L still does.
+    results.matches["South Korea-Czech Republic"].isFinished = false;
+    const preds = {
+      "standings_A": ["Mexico", "South Korea", "South Africa", "Czech Republic"],
+      "standings_L": ["England", "Croatia", "Ghana", "Panama"],
+    };
+    const r = scorePredictions(preds, results);
+    expect(r.standingsPoints).toBe(12); // only Group L
   });
 
   it("aggregates outright points correctly", () => {
