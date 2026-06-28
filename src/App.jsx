@@ -25,7 +25,8 @@ import {
 } from "./lib/supabase";
 import { isApiFootballConfigured, fetchAllResults, hasLiveMatches, getMatchResultForTeams } from "./lib/api-football";
 import { getSubmissionDeadlineMs, getFirstKickoffMs, formatCountdown, formatDeadlineLocal } from "./lib/tournament-deadline";
-import { scorePredictions, scoreMatch, scoreOutrights, scoreStats, isTournamentComplete } from "./lib/scoring";
+import { scorePredictions, scoreMatch, scoreOutrights, scoreStats, isTournamentComplete, groupFixtureProgress } from "./lib/scoring";
+import { GROUPS } from "./lib/groups";
 import { PLAYERS } from "./data/players";
 import heroImg from "./assets/hero.png";
 
@@ -70,20 +71,7 @@ function clearAuthUrlParams() {
 // Current configured 2026 World Cup groups for the prediction league.
 // UEFA PO-A=Bosnia-Herzegovina, PO-B=Sweden, PO-C=Turkey, PO-D=Czech Republic
 // IC PO-1=DR Congo, IC PO-2=Iraq
-const TEAMS = {
-  A: ["Mexico","South Africa","South Korea","Czech Republic"],
-  B: ["Canada","Bosnia-Herzegovina","Qatar","Switzerland"],
-  C: ["Brazil","Morocco","Haiti","Scotland"],
-  D: ["USA","Paraguay","Australia","Turkey"],
-  E: ["Germany","Curaçao","Ivory Coast","Ecuador"],
-  F: ["Netherlands","Japan","Sweden","Tunisia"],
-  G: ["Belgium","Egypt","Iran","New Zealand"],
-  H: ["Spain","Cape Verde","Saudi Arabia","Uruguay"],
-  I: ["France","Senegal","Iraq","Norway"],
-  J: ["Argentina","Algeria","Austria","Jordan"],
-  K: ["Portugal","DR Congo","Uzbekistan","Colombia"],
-  L: ["England","Croatia","Ghana","Panama"],
-};
+const TEAMS = GROUPS;
 
 const GROUP_IDS = Object.keys(TEAMS);
 const PREDICTION_SCREENS = ["matches", "standings", "outrights"];
@@ -1776,9 +1764,13 @@ function MatchesScreen({ preds, setPreds, results, readOnly, activeGroup, setAct
   );
 }
 
-function StandingsScreen({ preds, setPreds, readOnly, activeGroup, setActiveGroup }) {
+function StandingsScreen({ preds, setPreds, results, readOnly, activeGroup, setActiveGroup }) {
   const groups = GROUP_IDS;
   const groupPred = preds[`standings_${activeGroup}`] || [];
+
+  const groupTeamsFor = (g) => results?.standings?.[g] || TEAMS[g] || [];
+  const progress = groupFixtureProgress(results, groupTeamsFor(activeGroup));
+  const hasResults = Boolean(results && Object.keys(results.matches || {}).length);
 
   const setSlot = (pos, team) => {
     if (readOnly) return;
@@ -1816,7 +1808,16 @@ function StandingsScreen({ preds, setPreds, readOnly, activeGroup, setActiveGrou
       <div className="card">
         <div className="card-header">
           <span className="group-badge">Group {activeGroup} Final Standings</span>
-          <span className="tag">Tap team then position</span>
+          {(() => {
+            const base = { fontSize: "0.62rem", fontWeight: 800, letterSpacing: "0.5px", textTransform: "uppercase", padding: "3px 9px", borderRadius: 0, fontFamily: "'Barlow', sans-serif" };
+            if (!hasResults) {
+              return <span style={{ ...base, color: "#666", border: "1px solid #1e1e1e" }}>Scores once group ends</span>;
+            }
+            if (progress.complete) {
+              return <span style={{ ...base, color: "#4caf50", border: "1px solid rgba(76,175,80,0.4)", background: "rgba(76,175,80,0.08)" }}>✓ Settled — scoring</span>;
+            }
+            return <span style={{ ...base, color: COLORS.gold, border: `1px solid ${COLORS.gold}55` }}>⏳ Pending · {progress.finished}/{progress.expected} played</span>;
+          })()}
         </div>
         <div style={{ padding: "14px" }} className={readOnly ? "standings-readonly" : ""}>
           <div className="drag-team-pool">
@@ -3430,6 +3431,7 @@ export default function App() {
           <StandingsScreen
             preds={preds}
             setPreds={predictionsReadOnly ? () => {} : setPreds}
+            results={results}
             readOnly={predictionsReadOnly}
             activeGroup={activeStandingsGroup}
             setActiveGroup={handleStandingsGroupChange}

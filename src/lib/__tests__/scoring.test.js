@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { scoreMatch, scoreGroupStandings, scoreOutrights, scoreStats, scorePredictions, isTournamentComplete, isGroupComplete } from "../scoring.js";
+import { scoreMatch, scoreGroupStandings, scoreOutrights, scoreStats, scorePredictions, isTournamentComplete, isGroupComplete, groupFixtureProgress, computeGroupStandings } from "../scoring.js";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -261,6 +261,75 @@ describe("isGroupComplete", () => {
     expect(isGroupComplete(buildGroup(), ["England"])).toBe(false);
     expect(isGroupComplete({}, teams)).toBe(false);
   });
+
+  it("groupFixtureProgress reports finished/expected counts", () => {
+    expect(groupFixtureProgress(buildGroup(), teams)).toEqual({ finished: 6, expected: 6, complete: true });
+    const partial = buildGroup({ "Ghana-Panama": { isFinished: false }, "Croatia-Panama": { isFinished: false } });
+    expect(groupFixtureProgress(partial, teams)).toEqual({ finished: 4, expected: 6, complete: false });
+    expect(groupFixtureProgress({}, teams)).toEqual({ finished: 0, expected: 6, complete: false });
+  });
+});
+
+// ─── computeGroupStandings ───────────────────────────────────────────────────
+
+describe("computeGroupStandings", () => {
+  const teams = ["England", "Croatia", "Ghana", "Panama"];
+
+  // Build group fixtures from a list of [home, away, hg, ag] tuples.
+  const fixtures = (rows) => {
+    const matches = {};
+    for (const [home, away, hg, ag] of rows) {
+      matches[`${home}-${away}`] = {
+        homeTeam: home, awayTeam: away, round: "Group Stage - 1",
+        homeGoals: hg, awayGoals: ag, isFinished: true,
+      };
+    }
+    return matches;
+  };
+
+  it("ranks by points, then goal difference, then goals scored", () => {
+    // England 9 (best), Croatia 6, Ghana 3, Panama 0.
+    const matches = fixtures([
+      ["England", "Croatia", 1, 0], ["England", "Ghana", 2, 0], ["England", "Panama", 3, 0],
+      ["Croatia", "Ghana", 2, 0], ["Croatia", "Panama", 2, 0],
+      ["Ghana", "Panama", 1, 0],
+    ]);
+    expect(computeGroupStandings(matches, teams)).toEqual(["England", "Croatia", "Ghana", "Panama"]);
+  });
+
+  it("breaks ties on overall stats using head-to-head", () => {
+    // England, Croatia, Ghana all finish on 4 pts with identical GD/GF (each beats one, loses one, draws Panama-less set).
+    // Construct a perfect 3-way tie on overall, resolved only by head-to-head.
+    const matches = fixtures([
+      ["England", "Croatia", 1, 0],  // England beats Croatia
+      ["Croatia", "Ghana", 1, 0],    // Croatia beats Ghana
+      ["Ghana", "England", 1, 0],    // Ghana beats England  → each 3pts, GD 0, GF 1 among themselves
+      ["England", "Panama", 5, 0],
+      ["Croatia", "Panama", 5, 0],
+      ["Ghana", "Panama", 5, 0],
+    ]);
+    // Overall: England/Croatia/Ghana each 6pts, GD +5, GF 6 → fully tied; h2h is a cycle (each 3pts, GD0, GF1)
+    // so it falls through to alphabetical: Croatia, England, Ghana, then Panama last.
+    const result = computeGroupStandings(matches, teams);
+    expect(result[3]).toBe("Panama");
+    expect(result.slice(0, 3).sort()).toEqual(["Croatia", "England", "Ghana"]);
+  });
+
+  it("returns [] when there are no finished group fixtures", () => {
+    expect(computeGroupStandings({}, teams)).toEqual([]);
+    const unfinished = fixtures([["England", "Croatia", 1, 0]]);
+    Object.values(unfinished).forEach((m) => { m.isFinished = false; });
+    expect(computeGroupStandings(unfinished, teams)).toEqual([]);
+  });
+
+  it("ignores knockout matches between the same teams", () => {
+    const matches = fixtures([
+      ["England", "Croatia", 1, 0], ["England", "Ghana", 1, 0], ["England", "Panama", 1, 0],
+      ["Croatia", "Ghana", 1, 0], ["Croatia", "Panama", 1, 0], ["Ghana", "Panama", 1, 0],
+    ]);
+    matches["Croatia-England"] = { homeTeam: "Croatia", awayTeam: "England", round: "Round of 16", homeGoals: 9, awayGoals: 0, isFinished: true };
+    expect(computeGroupStandings(matches, teams)[0]).toBe("England"); // knockout thrashing must not count
+  });
 });
 
 // ─── scoreOutrights ──────────────────────────────────────────────────────────
@@ -496,6 +565,18 @@ describe("scorePredictions", () => {
     };
     const r = scorePredictions(preds, buildResults());
     expect(r.standingsPoints).toBe(24);
+  });
+
+  it("scores standings from match results when the feed provides no group table", () => {
+    const results = buildResults();
+    results.standings = {}; // simulate football-data.org's empty/ungrouped standings feed
+    const preds = {
+      // Computed Group A table (all 0-0 except Mexico 2-0 SA): Mexico 1st, then 0-pt teams by GD/alpha.
+      "standings_A": computeGroupStandings(results.matches, ["Mexico", "South Africa", "South Korea", "Czech Republic"]),
+      "standings_L": computeGroupStandings(results.matches, ["England", "Croatia", "Ghana", "Panama"]),
+    };
+    const r = scorePredictions(preds, results);
+    expect(r.standingsPoints).toBe(24); // both groups fully correct via the computed fallback
   });
 
   it("does not score a group's standings until all its fixtures are finished", () => {

@@ -1,4 +1,5 @@
 import { matchPlayerName } from "./api-football";
+import { GROUPS, GROUP_IDS } from "./groups";
 
 // Points constants — match the RulesScreen display
 const PTS = {
@@ -130,9 +131,9 @@ export function scoreMatch(prediction, result) {
  * @param results  full results object ({ matches, ... })
  * @param groupTeams  the teams in the group (e.g. results.standings[g])
  */
-export function isGroupComplete(results, groupTeams) {
+export function groupFixtureProgress(results, groupTeams) {
   const teams = (groupTeams || []).filter(Boolean);
-  if (teams.length < 2) return false;
+  if (teams.length < 2) return { finished: 0, expected: 0, complete: false };
   const teamSet = new Set(teams);
   // A group of n teams plays every pairing once: n*(n-1)/2 fixtures.
   const expected = (teams.length * (teams.length - 1)) / 2;
@@ -143,7 +144,86 @@ export function isGroupComplete(results, groupTeams) {
     if (!teamSet.has(match.homeTeam) || !teamSet.has(match.awayTeam)) continue;
     if (match.isFinished) finished += 1;
   }
-  return finished >= expected;
+  return { finished, expected, complete: finished >= expected };
+}
+
+export function isGroupComplete(results, groupTeams) {
+  return groupFixtureProgress(results, groupTeams).complete;
+}
+
+/**
+ * Compute a group's final table from finished group-stage fixtures.
+ *
+ * The results feed only provides a flat, ungrouped league table, so we derive
+ * each group's ranking ourselves from match results. Ranking uses the FIFA
+ * group-stage tiebreakers: points, then goal difference, then goals scored
+ * across all group matches; remaining ties are broken head-to-head (points,
+ * GD, GF among the tied teams) and finally alphabetically for determinism.
+ *
+ * @param matches  results.matches (keyed object of match entries)
+ * @param groupTeams  the teams in the group
+ * @returns ranked array of team names (1st → 4th), or [] if no fixtures
+ */
+export function computeGroupStandings(matches, groupTeams) {
+  const teams = (groupTeams || []).filter(Boolean);
+  if (teams.length < 2) return [];
+  const teamSet = new Set(teams);
+
+  const groupMatches = Object.values(matches || {}).filter(
+    (m) =>
+      String(m?.round || "").toLowerCase().includes("group") &&
+      teamSet.has(m.homeTeam) &&
+      teamSet.has(m.awayTeam) &&
+      m.isFinished &&
+      m.homeGoals != null &&
+      m.awayGoals != null,
+  );
+  if (!groupMatches.length) return [];
+
+  // Tally points/goals; `restrict` (a Set) limits which fixtures count, for head-to-head.
+  const tally = (restrict) => {
+    const s = {};
+    for (const t of teams) s[t] = { team: t, pts: 0, gf: 0, ga: 0 };
+    for (const m of groupMatches) {
+      if (restrict && (!restrict.has(m.homeTeam) || !restrict.has(m.awayTeam))) continue;
+      const h = s[m.homeTeam];
+      const a = s[m.awayTeam];
+      h.gf += m.homeGoals; h.ga += m.awayGoals;
+      a.gf += m.awayGoals; a.ga += m.homeGoals;
+      if (m.homeGoals > m.awayGoals) h.pts += 3;
+      else if (m.homeGoals < m.awayGoals) a.pts += 3;
+      else { h.pts += 1; a.pts += 1; }
+    }
+    return s;
+  };
+
+  const overall = tally(null);
+  const byStat = (s) => (a, b) =>
+    s[b].pts - s[a].pts ||
+    (s[b].gf - s[b].ga) - (s[a].gf - s[a].ga) ||
+    s[b].gf - s[a].gf;
+
+  const ranked = [...teams].sort((a, b) => byStat(overall)(a, b) || a.localeCompare(b));
+
+  const tiedOnOverall = (a, b) =>
+    overall[a].pts === overall[b].pts &&
+    overall[a].gf - overall[a].ga === overall[b].gf - overall[b].ga &&
+    overall[a].gf === overall[b].gf;
+
+  // Re-sort any block of teams level on overall stats by their head-to-head record.
+  const result = [];
+  for (let i = 0; i < ranked.length; ) {
+    let j = i + 1;
+    while (j < ranked.length && tiedOnOverall(ranked[i], ranked[j])) j += 1;
+    const block = ranked.slice(i, j);
+    if (block.length > 1) {
+      const h2h = tally(new Set(block));
+      block.sort((a, b) => byStat(h2h)(a, b) || a.localeCompare(b));
+    }
+    result.push(...block);
+    i = j;
+  }
+  return result;
 }
 
 /**
@@ -289,13 +369,16 @@ export function scorePredictions(preds, results) {
   // Score group standings
   let standingsPoints = 0;
   let standingsBreakdown = [];
-  const groups = "ABCDEFGHIJKL".split("");
-  for (const g of groups) {
+  for (const g of GROUP_IDS) {
     const predicted = preds[`standings_${g}`];
-    const actual = results.standings?.[g];
-    if (!predicted || !actual) continue;
+    if (!predicted) continue;
+    const groupTeams = GROUPS[g];
     // Only score once every fixture in the group has been played; live tables are provisional.
-    if (!isGroupComplete(results, actual)) continue;
+    if (!isGroupComplete(results, groupTeams)) continue;
+    // The feed often omits per-group tables, so derive the final table from match results.
+    const feedTable = results.standings?.[g];
+    const actual = feedTable?.length ? feedTable : computeGroupStandings(results.matches, groupTeams);
+    if (!actual.length) continue;
     const { points, breakdown } = scoreGroupStandings(predicted, actual);
     standingsPoints += points;
     standingsBreakdown = standingsBreakdown.concat(breakdown);
