@@ -25,7 +25,7 @@ import {
 } from "./lib/supabase";
 import { isApiFootballConfigured, fetchAllResults, hasLiveMatches, getMatchResultForTeams } from "./lib/api-football";
 import { getSubmissionDeadlineMs, getFirstKickoffMs, formatCountdown, formatDeadlineLocal } from "./lib/tournament-deadline";
-import { scorePredictions, scoreMatch, scoreOutrights, scoreStats, isTournamentComplete, groupFixtureProgress } from "./lib/scoring";
+import { scorePredictions, scoreMatch, scoreOutrights, scoreStats, isTournamentComplete, groupFixtureProgress, isGroupComplete, computeGroupStandings, scoreGroupStandings } from "./lib/scoring";
 import { GROUPS } from "./lib/groups";
 import { PLAYERS } from "./data/players";
 import heroImg from "./assets/hero.png";
@@ -514,6 +514,20 @@ const css = `
   .pred-match-scorer-line.correct strong { color: #4CAF50; }
   .pred-scorer-badge { display: inline-block; margin-left: 8px; font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 0.68rem; padding: 2px 6px; border-radius: 2px; background: rgba(76,175,80,0.22); border: 1px solid #4CAF50; color: #fff; letter-spacing: 0.3px; vertical-align: middle; }
   .pred-match-scorer-line strong { color: #999; font-weight: 600; font-family: 'Barlow', sans-serif; font-size: 0.62rem; letter-spacing: 0.5px; text-transform: uppercase; margin-right: 6px; }
+  .pred-standings-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 18px; margin-bottom: 8px; }
+  .pred-standings-table { width: 100%; border-collapse: collapse; font-family: 'Barlow', sans-serif; }
+  .pred-standings-table th { font-size: 0.58rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #666; text-align: left; padding: 4px 8px; }
+  .pred-standings-table th.pred-th-pts { text-align: right; }
+  .pred-standings-table td { padding: 6px 8px; border-top: 1px solid #161616; vertical-align: middle; }
+  .pred-standings-row.correct { background: rgba(76,175,80,0.06); }
+  .pred-standings-pos { color: #555; font-weight: 800; font-family: 'Barlow Condensed', sans-serif; font-size: 0.9rem; width: 22px; }
+  .pred-standings-team { display: inline-flex; align-items: center; gap: 6px; font-size: 0.78rem; color: #ccc; font-weight: 600; white-space: nowrap; }
+  .pred-standings-team.correct { color: #8fd694; }
+  .pred-standings-team--actual { color: #888; }
+  .pred-standings-empty { color: #444; }
+  .pred-standings-rowpts { font-family: 'Barlow Condensed', sans-serif; font-weight: 900; font-size: 0.8rem; color: #555; display: block; text-align: right; }
+  .pred-standings-rowpts.earned { color: #4CAF50; }
+  .pred-standings-none { font-size: 0.74rem; color: #555; font-family: 'Noto Sans', sans-serif; padding: 2px 0 4px; }
   .lb-locked-notice { display: flex; align-items: center; gap: 10px; background: rgba(201,168,76,0.04); border: 1px solid rgba(201,168,76,0.15); padding: 16px; margin-bottom: 16px; }
   .lb-locked-notice-icon { font-size: 1.4rem; flex-shrink: 0; }
   .lb-locked-notice-text { font-size: 0.82rem; color: #888; font-family: 'Noto Sans', sans-serif; line-height: 1.5; }
@@ -1790,6 +1804,14 @@ function StandingsScreen({ preds, setPreds, results, readOnly, activeGroup, setA
     return p.filter(Boolean).length === 4;
   });
 
+  // Once a group is settled, show the actual final table alongside the user's picks + score.
+  const actualOrder = progress.complete
+    ? (results?.standings?.[activeGroup]?.length ? results.standings[activeGroup] : computeGroupStandings(results?.matches, groupTeamsFor(activeGroup)))
+    : [];
+  const groupScore = progress.complete && groupPred.some(Boolean)
+    ? scoreGroupStandings(groupPred, actualOrder).points
+    : 0;
+
   return (
     <div className="section">
       <div className="section-title">Group Standings</div>
@@ -1866,6 +1888,52 @@ function StandingsScreen({ preds, setPreds, results, readOnly, activeGroup, setA
           </p>
         </div>
       </div>
+      {progress.complete && groupPred.some(Boolean) && (
+        <div className="card">
+          <div className="card-header">
+            <span className="group-badge">Group {activeGroup} Result &amp; Your Score</span>
+            <span className={`pred-pts-pill${groupScore > 0 ? " earned" : ""}`}>+{groupScore} pts</span>
+          </div>
+          <div style={{ padding: "14px", overflowX: "auto" }}>
+            <table className="pred-standings-table">
+              <thead>
+                <tr>
+                  <th className="pred-standings-pos">#</th>
+                  <th>Your pick</th>
+                  <th>Actual</th>
+                  <th className="pred-th-pts">Pts</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[0, 1, 2, 3].map((i) => {
+                  const predTeam = groupPred[i] || null;
+                  const actualTeam = actualOrder[i] || null;
+                  const correct = predTeam && predTeam === actualTeam;
+                  return (
+                    <tr key={i} className={`pred-standings-row${correct ? " correct" : ""}`}>
+                      <td className="pred-standings-pos">{i + 1}</td>
+                      <td>
+                        <span className={`pred-standings-team${correct ? " correct" : ""}`}>
+                          {predTeam ? <><TeamFlag team={predTeam} size={14} /><span>{predTeam}</span></> : <span className="pred-standings-empty">—</span>}
+                          {correct && <span className="pred-scorer-check" aria-hidden="true">✓</span>}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="pred-standings-team pred-standings-team--actual">
+                          {actualTeam ? <><TeamFlag team={actualTeam} size={14} /><span>{actualTeam}</span></> : <span className="pred-standings-empty">—</span>}
+                        </span>
+                      </td>
+                      <td className="pred-pts-cell">
+                        <span className={`pred-standings-rowpts${correct ? " earned" : ""}`}>{correct ? "+3" : "0"}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
       {allGroupsDone && (
         <div style={{ textAlign: "center", marginTop: "12px" }}>
           <span className="completion-badge" style={{ fontSize: "0.85rem", padding: "6px 16px" }}>
@@ -2052,6 +2120,24 @@ function UserPredictionsPanel({ predictions, results }) {
     return { key, m, scorer, earned, canScore, matchPts, ptsTitle, scoreLabel, scorerCorrect };
   });
 
+  // Group standings: the user's predicted order vs the actual final table for this group.
+  const groupTeams = GROUPS[activeGroup] || [];
+  const predictedOrder = Array.isArray(preds[`standings_${activeGroup}`]) ? preds[`standings_${activeGroup}`] : [];
+  const standingsComplete = isGroupComplete(results, groupTeams);
+  const actualOrder = standingsComplete
+    ? (results?.standings?.[activeGroup]?.length ? results.standings[activeGroup] : computeGroupStandings(results?.matches, groupTeams))
+    : [];
+  const standingsPts = standingsComplete && predictedOrder.length
+    ? scoreGroupStandings(predictedOrder, actualOrder).points
+    : 0;
+  const standingsRows = [0, 1, 2, 3].map((i) => {
+    const predTeam = predictedOrder[i] || null;
+    const actualTeam = actualOrder[i] || null;
+    const correct = standingsComplete && predTeam && predTeam === actualTeam;
+    return { pos: i + 1, predTeam, actualTeam, correct };
+  });
+  const hasStandingsPred = predictedOrder.some(Boolean);
+
   return (
     <div className="lb-pred-panel">
       <div className="group-tabs">
@@ -2134,6 +2220,51 @@ function UserPredictionsPanel({ predictions, results }) {
           </div>
         ))}
       </div>
+      <div className="pred-standings-head">
+        <span className="pred-outrights-label" style={{ marginBottom: 0 }}>Group {activeGroup} Standings</span>
+        <span className={`pred-pts-pill${standingsComplete && standingsPts > 0 ? " earned" : standingsComplete ? "" : " pending"}`}>
+          {standingsComplete ? `+${standingsPts} pts` : "Pending"}
+        </span>
+      </div>
+      {hasStandingsPred ? (
+        <div style={{ overflowX: "auto" }}>
+        <table className="pred-standings-table">
+          <thead>
+            <tr>
+              <th className="pred-standings-pos">#</th>
+              <th>Your pick</th>
+              <th>Actual</th>
+              <th className="pred-th-pts">Pts</th>
+            </tr>
+          </thead>
+          <tbody>
+            {standingsRows.map(({ pos, predTeam, actualTeam, correct }) => (
+              <tr key={pos} className={`pred-standings-row${correct ? " correct" : ""}`}>
+                <td className="pred-standings-pos">{pos}</td>
+                <td>
+                  <span className={`pred-standings-team${correct ? " correct" : ""}`}>
+                    {predTeam ? <><TeamFlag team={predTeam} size={14} /><span>{predTeam}</span></> : <span className="pred-standings-empty">—</span>}
+                    {correct && <span className="pred-scorer-check" aria-hidden="true">✓</span>}
+                  </span>
+                </td>
+                <td>
+                  <span className="pred-standings-team pred-standings-team--actual">
+                    {standingsComplete && actualTeam ? <><TeamFlag team={actualTeam} size={14} /><span>{actualTeam}</span></> : <span className="pred-standings-empty">—</span>}
+                  </span>
+                </td>
+                <td className="pred-pts-cell">
+                  <span className={`pred-standings-rowpts${correct ? " earned" : ""}`}>
+                    {standingsComplete ? (correct ? "+3" : "0") : "—"}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        </div>
+      ) : (
+        <div className="pred-standings-none">No group standings prediction</div>
+      )}
       <div className="pred-outrights-label">Outrights</div>
       <div className="pred-outrights">
         {outrightSummary.map(({ key, icon, label }) => {
